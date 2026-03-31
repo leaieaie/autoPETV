@@ -1,9 +1,3 @@
-# Ignore model weights
-nnunet-baseline/weights.zip
-
-# Ignore results directory
-nnunet-baseline/nnUNet_results/
-
 # Ignore Python cache
 __pycache__/
 *.pyc

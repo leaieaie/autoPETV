@@ -167,8 +167,8 @@ def save_click_heatmaps(clicks, output, input_pet):
     tumor_coords = clicks['tumor']
     non_tumor_coords = clicks['background']
     
-    tumor_heatmap = generate_gaussian_heatmap(tumor_coords, ref_shape, 3)
-    non_tumor_heatmap = generate_gaussian_heatmap(non_tumor_coords, ref_shape, 3)
+    tumor_heatmap = generate_gaussian_heatmap(tumor_coords, ref_shape, 0)
+    non_tumor_heatmap = generate_gaussian_heatmap(non_tumor_coords, ref_shape, 0)
 
     tumor_nifti = nib.Nifti1Image(tumor_heatmap, ref_affine)
     non_tumor_nifti = nib.Nifti1Image(non_tumor_heatmap, ref_affine)

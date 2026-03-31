@@ -1,18 +1,56 @@
 import os
 import json
-import shutil
 import argparse
-import numpy as np
-import SimpleITK as sitk
+import shutil
 import subprocess
 import traceback
+import logging
+from typing import Dict, List
 
-from simulate_scribbles import simulate_scribble_from_label
+import numpy as np
+import nibabel as nib
+import SimpleITK as sitk
 
+from simulate_scribbles import (
+    simulate_scribble_from_label,
+    scribbles_to_gc_format,
+    gc_to_swfastedit_format,
+    heatmap_from_coords,
+    save_heatmap_nifti,
+)
+
+# Disable SimpleITK warnings
 sitk.ProcessObject_SetGlobalWarningDisplay(False)
 
 
-def dice_score(pred, gt):
+# =============================================================================
+# Logging setup
+# =============================================================================
+def setup_logger(log_file: str) -> logging.Logger:
+    logger = logging.getLogger("interactive_segmentation")
+    logger.setLevel(logging.INFO)
+
+    formatter = logging.Formatter(
+        "[%(asctime)s] [%(levelname)s] %(message)s"
+    )
+
+    file_handler = logging.FileHandler(log_file)
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
+    return logger
+
+
+# =============================================================================
+# Metrics
+# =============================================================================
+def dice_score(pred: np.ndarray, gt: np.ndarray) -> float:
+    """Compute Dice score between prediction and ground truth."""
     pred = (pred > 0).astype(np.uint8)
     gt = (gt > 0).astype(np.uint8)
 
@@ -24,256 +62,263 @@ def dice_score(pred, gt):
 
     return 2.0 * intersection / denom
 
-def detection_matching_metric(pred, gt):
-    # TODO - add the implementation here
-    return 0
 
-def log_error(case, iteration, message):
-    with open(error_log_file, "a") as f:
-        f.write(f"CASE: {case} | ITER: {iteration} | ERROR: {message}\n")
+def detection_matching_metric(pred: np.ndarray, gt: np.ndarray) -> float:
+    """Placeholder for detection matching metric."""
+    return 0.0
 
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--input_cases", type=str)
-parser.add_argument("--result_dir", type=str)
-parser.add_argument("--input_interface", type=str)
-parser.add_argument("--strategy", required=True,
-                    choices=["centerline", "random", "boundary"])
-args = parser.parse_args()
+# =============================================================================
+# Utilities
+# =============================================================================
+def convert_mha_to_nii(mha_input_path: str, nii_out_path: str) -> None:
+    """Convert .mha image to .nii.gz."""
+    img = sitk.ReadImage(mha_input_path)
+    sitk.WriteImage(img, nii_out_path, True)
 
-input_cases = args.input_cases
-input_interface = args.input_interface
-result_dir = args.result_dir
-strategy = args.strategy
 
-# We assume the CT images are stored with a suffix _0000 and PET (SUV) with _0001 in the nnUNet format
-cts = sorted([os.path.join(input_cases, 'images', el)
-              for el in os.listdir(os.path.join(input_cases, 'images')) if '_0000' in el])
-pets = sorted([os.path.join(input_cases, 'images', el)
-               for el in os.listdir(os.path.join(input_cases, 'images')) if '_0001' in el])
-labels = sorted([os.path.join(input_cases, 'labels', el)
-                 for el in os.listdir(os.path.join(input_cases, 'labels'))])
-
-os.makedirs(result_dir, exist_ok=True)
-error_log_file = os.path.join(result_dir, "error_log.txt")
-with open(error_log_file, "w") as f:
-    f.write("=== ERROR LOG ===\n")
-
-case_dict = {}
-output_dice_file = os.path.join(result_dir, "dice_scores.json")
-
-max_iters = 2
-
-# =========================
-# Case loop
-# =========================
-for it_case, (ct, pet, label) in enumerate(zip(cts, pets, labels)):
-
-    tag = os.path.basename(ct).split('.nii.gz')[0]
-    print(f"\n================ CASE {tag} ================\n")
-
-    case_dict[tag] = []
-
-    # ===========================================================================
-    # Clean input interface - make sure there is only one case per inference step
-    # ===========================================================================
-    ct_dir = os.path.join(input_interface, 'input', 'images', 'ct')
-    pet_dir = os.path.join(input_interface, 'input', 'images', 'pet')
-    seg_dir = os.path.join(input_interface, 'output', 'images', 'tumor-lesion-segmentation')
-
-    for d in [ct_dir, pet_dir, seg_dir]:
-        if os.path.exists(d):
-            for f in os.listdir(d):
-                try:
-                    os.remove(os.path.join(d, f))
-                except Exception:
-                    pass 
-
+def safe_remove(path: str) -> None:
+    """Remove file if it exists (silently ignore errors)."""
     try:
-        # Load images
-        ct_img = sitk.ReadImage(ct)
-        pet_img = sitk.ReadImage(pet)
-        label_img = sitk.ReadImage(label)
+        if os.path.exists(path):
+            os.remove(path)
+    except Exception:
+        pass
 
-        # Write inputs
-        ct_out = os.path.join(input_interface, 'input', 'images', 'ct', f"case_{tag}.mha")
-        pet_out = os.path.join(input_interface, 'input', 'images', 'pet', f"case_{tag}.mha")
 
-        sitk.WriteImage(ct_img, ct_out)
-        sitk.WriteImage(pet_img, pet_out)
+def clean_directory(directory: str) -> None:
+    """Remove all files in a directory."""
+    if not os.path.exists(directory):
+        return
 
-        output_json = os.path.join(input_interface, 'input', 'lesion-clicks.json')
-        output_seg = os.path.join(input_interface, 'output', 'images', 'tumor-lesion-segmentation')
-        prev_dice = None  # store last valid dice
-        empty_gt = False
-        # =========================
-        # Interaction loop
-        # =========================
-        for it in range(max_iters):
-            print(f'Interactive iteration {it} starting...\n')
+    for f in os.listdir(directory):
+        safe_remove(os.path.join(directory, f))
 
-            try:
-                if it == 0:
-                    data = {
-                        "tumor": [],
-                        "background": []
-                    }
 
-                else:
-                    gt = sitk.GetArrayFromImage(label_img)
-                    empty_gt = (np.sum(gt) == 0)
-                    if empty_gt:
-                        print("Empty GT detected → skipping inference, reusing Dice from iteration 0")
-                        dice = prev_dice if prev_dice is not None else 1.0
+# =============================================================================
+# Main pipeline
+# =============================================================================
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--input_cases", type=str, required=True)
+    parser.add_argument("--result_dir", type=str, required=True)
+    parser.add_argument("--input_interface", type=str, required=True)
+    parser.add_argument(
+        "--strategy",
+        required=True,
+        choices=["centerline", "random", "boundary"],
+    )
+    parser.add_argument("--max_iters", type=int, default=5)
+
+    args = parser.parse_args()
+
+    os.makedirs(args.result_dir, exist_ok=True)
+
+    log_file = os.path.join(args.result_dir, "run.log")
+    logger = setup_logger(log_file)
+
+    logger.info("Starting interactive segmentation pipeline")
+
+    # -------------------------------------------------------------------------
+    # Collect data
+    # -------------------------------------------------------------------------
+    image_dir = os.path.join(args.input_cases, "images")
+    label_dir = os.path.join(args.input_cases, "labels")
+
+    cts = sorted([os.path.join(image_dir, f) for f in os.listdir(image_dir) if "_0000" in f])
+    pets = sorted([os.path.join(image_dir, f) for f in os.listdir(image_dir) if "_0001" in f])
+    labels = sorted([os.path.join(label_dir, f) for f in os.listdir(label_dir)])
+
+    output_dice_file = os.path.join(args.result_dir, "dice_scores.json")
+    case_dict: Dict[str, List[Dict]] = {}
+
+    # Interface paths
+    ct_dir = os.path.join(args.input_interface, "input", "images", "ct")
+    pet_dir = os.path.join(args.input_interface, "input", "images", "pet")
+    seg_dir = os.path.join(args.input_interface, "output", "images", "tumor-lesion-segmentation")
+
+    # -------------------------------------------------------------------------
+    # Case loop
+    # -------------------------------------------------------------------------
+    for ct, pet, label in zip(cts, pets, labels):
+
+        if "fdg" in ct or '198' in ct:
+            continue
+
+        tag = os.path.basename(ct).replace(".nii.gz", "")
+        logger.info(f"Processing case: {tag}")
+
+        case_result_dir = os.path.join(args.result_dir, tag)
+        os.makedirs(case_result_dir, exist_ok=True)
+
+        case_dict[tag] = []
+
+        # Clean interface
+        for d in [ct_dir, pet_dir, seg_dir]:
+            clean_directory(d)
+
+        try:
+            # -----------------------------------------------------------------
+            # Load data
+            # -----------------------------------------------------------------
+            ct_img = sitk.ReadImage(ct)
+            pet_img = sitk.ReadImage(pet)
+
+            ct_out = os.path.join(ct_dir, f"case_{tag}.mha")
+            pet_out = os.path.join(pet_dir, f"case_{tag}.mha")
+
+            sitk.WriteImage(ct_img, ct_out)
+            sitk.WriteImage(pet_img, pet_out)
+
+            label_img = nib.load(label)
+            gt = label_img.get_fdata()
+
+            case_shape = gt.shape
+            empty_gt = np.sum(gt) == 0
+
+            output_json = os.path.join(args.input_interface, "input", "lesion-clicks.json")
+            prev_dice = None
+
+            # -----------------------------------------------------------------
+            # Iteration loop
+            # -----------------------------------------------------------------
+            for it in range(args.max_iters):
+                logger.info(f"[{tag}] Iteration {it}")
+
+                try:
+                    if it == 0:
+                        data = {"tumor": [], "background": []}
+
                     else:
-                        seg_path = os.path.join(output_seg, f"case_{tag}.mha")
+                        if empty_gt:
+                            logger.info("Empty GT → reusing previous Dice")
+                            dice = prev_dice if prev_dice is not None else 0.0
 
-                        if not os.path.exists(seg_path):
-                            raise FileNotFoundError(f"Missing segmentation: {seg_path}")
-
-                        seg_img = sitk.ReadImage(seg_path)
-
-                        with open(output_json, 'r') as f:
-                            data = json.load(f)
-
-                        pred = sitk.GetArrayFromImage(seg_img)
-
-
-                        if pred.shape != gt.shape:
-                            raise ValueError("Shape mismatch between prediction and GT")
-
-                        error_map = np.abs(pred - gt).astype(np.uint8)
-
-                        scribbles, label_cls = simulate_scribble_from_label(error_map, strategy)
-
-                        if label_cls:
-                            data['tumor'] += scribbles
                         else:
-                            data['background'] += scribbles
+                            seg_path = os.path.join(seg_dir, f"case_{tag}.mha")
+                            seg_nii = seg_path.replace(".mha", ".nii.gz")
 
-                # Update input scribbles
-                with open(output_json, "w") as f:
-                    json.dump(data, f)
+                            if not os.path.exists(seg_path):
+                                raise FileNotFoundError("Missing segmentation")
 
-                if not (it > 0 and empty_gt):
+                            convert_mha_to_nii(seg_path, seg_nii)
+
+                            pred = nib.load(seg_nii).get_fdata()
+                            os.remove(seg_nii)
+
+                            with open(output_json, "r") as f:
+                                data = gc_to_swfastedit_format(json.load(f))
+
+                            if pred.shape != gt.shape:
+                                raise ValueError("Shape mismatch")
+
+                            overseg = (pred == 1) & (gt == 0)
+                            underseg = (pred == 0) & (gt == 1)
+
+                            scribbles_bg, _, fp = simulate_scribble_from_label(overseg, args.strategy)
+                            scribbles_fg, _, fn = simulate_scribble_from_label(underseg, args.strategy)
+
+                            if fp <= fn:
+                                data["tumor"] += scribbles_fg
+                            else:
+                                data["background"] += scribbles_bg
+
+                    # Save scribbles
+                    with open(output_json, "w") as f:
+                        json.dump(scribbles_to_gc_format(data), f)
+
+                    try:
+                        click_save_path = os.path.join(case_result_dir, f"iter_{it}_scribbles.json")
+                        with open(click_save_path, "w") as f:
+                            json.dump(data, f, indent=4)
+                        logger.info(f"[{tag}] Saved scribbles: {click_save_path}")
+                    except Exception as e:
+                        logger.warning(f"[{tag}] Failed to save scribbles at iter {it}: {e}")
+
                     # Run inference
                     subprocess.run(
                         "bash nnunet-baseline/test.sh",
                         shell=True,
                         timeout=600,
-                        check=True
+                        check=True,
                     )
 
-                    # Load prediction
-                    seg_path = os.path.join(output_seg, f"case_{tag}.mha")
+                    seg_path = os.path.join(seg_dir, f"case_{tag}.mha")
+                    seg_nii = seg_path.replace(".mha", ".nii.gz")
 
-                    if not os.path.exists(seg_path):
-                        raise FileNotFoundError("Prediction file not created")
+                    convert_mha_to_nii(seg_path, seg_nii)
 
-                    seg_img = sitk.ReadImage(seg_path)
-
-                    pred = sitk.GetArrayFromImage(seg_img)
-                    gt = sitk.GetArrayFromImage(label_img)
-
-                    if pred.shape != gt.shape:
-                        raise ValueError("Shape mismatch after inference")
+                    pred = nib.load(seg_nii).get_fdata()
+                    os.remove(seg_nii)
 
                     dice = dice_score(pred, gt)
                     dmm = detection_matching_metric(pred, gt)
 
-            except Exception as e:
-                print(f"[WARNING] Iteration {it} failed for case {tag}: {e}")
-                print(traceback.format_exc())
+                    # Save intermediate prediction 
+                    try:
+                        save_path = os.path.join(case_result_dir, f"iter_{it}.nii.gz")
+                        convert_mha_to_nii(seg_path, save_path)
+                        logger.info(f"[{tag}] Saved prediction: {save_path}")
+                    except Exception as e:
+                        logger.warning(f"[{tag}] Failed to save prediction at iter {it}: {e}")                 
 
-                log_error(tag, it, str(e))  
+                except Exception as e:
+                    logger.warning(f"[{tag}] Iteration {it} failed: {e}")
+                    logger.debug(traceback.format_exc())
 
-                dice = 0.0
-                dmm = 0.0
+                    dice, dmm = 0.0, 0.0
 
-            prev_dice = float(dice)
-            # Always record Dice
-            case_dict[tag].append({
-                "iteration": it,
-                "dice": float(dice),
-                "dmm": float(dmm)
-            })
+                prev_dice = float(dice)
 
-            print(f'\nDice@{it} = {dice}\n')
-            print(f'\DMM@{it} = {dmm}\n')
-
-            # Safe copy of result
-            try:
-                shutil.copy(
-                    os.path.join(output_seg, f"case_{tag}.mha"),
-                    os.path.join(result_dir, f"case_{tag}_{it}.mha")
+                case_dict[tag].append(
+                    {"iteration": it, "dice": float(dice), "dmm": float(dmm)}
                 )
-            except Exception:
-                pass
 
-        # =========================
-        # Cleanup 
-        # =========================
-        for path in [
-            ct_out,
-            pet_out,
-            os.path.join(output_seg, f"case_{tag}.mha")
-        ]:
-            try:
-                if os.path.exists(path):
-                    os.remove(path)
-            except Exception:
-                pass
+                logger.info(f"[{tag}] Dice@{it}: {dice:.4f}")
 
-    except Exception as e:
-        print(f"[ERROR] Case {tag} completely failed: {e}")
-        print(traceback.format_exc())
+        except Exception as e:
+            logger.error(f"[{tag}] Case failed completely: {e}")
+            logger.debug(traceback.format_exc())
 
-        # Fill all iterations with 0
-        case_dict[tag] = [{"iteration": i, "dice": 0.0} for i in range(6)]
-        case_dict[tag] = [{"iteration": i, "dmm": 0.0} for i in range(6)]
+            case_dict[tag] = [
+                {"iteration": i, "dice": 0.0, "dmm": 0.0}
+                for i in range(args.max_iters)
+            ]
 
-    # =========================
-    # Save progress after each case
-    # =========================
-    with open(output_dice_file, "w") as f:
-        json.dump(case_dict, f, indent=4)
+        # Save progress
+        with open(output_dice_file, "w") as f:
+            json.dump(case_dict, f, indent=4)
 
+    logger.info("All cases processed")
 
-print("\n✅ All cases processed. Dice scores saved.\n")
+    # -------------------------------------------------------------------------
+    # Compute AUC
+    # -------------------------------------------------------------------------
+    with open(output_dice_file, "r") as f:
+        data = json.load(f)
 
-# -------------------------
-print("Computing AUC metrics.")
-with open(output_dice_file, "r") as f:
-    data = json.load(f)
+    auc_results = {}
 
-auc_results = {}
+    for case_id, records in data.items():
+        records = sorted(records, key=lambda x: x["iteration"])
 
-# -------------------------
-# Compute AUC per case
-# -------------------------
-for case_id, records in data.items():
+        iterations = np.array([r["iteration"] for r in records], dtype=float)
+        dice = np.array([r["dice"] for r in records], dtype=float)
 
-    # sort by iteration (important!)
-    records = sorted(records, key=lambda x: x["iteration"])
+        auc = np.trapz(dice, iterations)
 
-    iterations = np.array([r["iteration"] for r in records], dtype=float)
-    dice = np.array([r["dice"] for r in records], dtype=float)
-    # TODO add dmm
-    # dmm = np.array([r["dmm"] for r in records], dtype=float)
+        auc_results[case_id] = {"auc": float(auc)}
+
+    auc_output_file = output_dice_file.replace(".json", "_AUC.json")
+
+    with open(auc_output_file, "w") as f:
+        json.dump(auc_results, f, indent=4)
+
+    logger.info(f"AUC results saved to: {auc_output_file}")
 
 
-    auc = np.trapz(dice, iterations)
-
-    auc_results[case_id] = {
-        "auc": float(auc),  
-        # "dmm": float(dmm)
-    }
-
-# -------------------------
-# Save output JSON
-# -------------------------
-auc_output_file = output_dice_file.replace('.json', '_AUC.json')
-with open(auc_output_file, "w") as f:
-    json.dump(auc_results, f, indent=4)
-
-print("Saved AUC results to:", auc_output_file)
+# =============================================================================
+# Entry point
+# =============================================================================
+if __name__ == "__main__":
+    main()

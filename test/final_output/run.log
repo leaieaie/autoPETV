@@ -1,0 +1,24 @@
+[2026-03-31 12:00:49,664] [INFO] Starting interactive segmentation pipeline
+[2026-03-31 12:00:49,664] [INFO] Processing case: psma_ffcaa75377465b37_2018-03-04_0000
+[2026-03-31 12:00:50,197] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Iteration 0
+[2026-03-31 12:00:50,197] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved scribbles: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_0_scribbles.json
+[2026-03-31 12:02:00,526] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved prediction: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_0.nii.gz
+[2026-03-31 12:02:00,526] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Dice@0: 0.8702
+[2026-03-31 12:02:00,526] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Iteration 1
+[2026-03-31 12:02:01,909] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved scribbles: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_1_scribbles.json
+[2026-03-31 12:03:12,342] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved prediction: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_1.nii.gz
+[2026-03-31 12:03:12,343] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Dice@1: 0.8857
+[2026-03-31 12:03:12,343] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Iteration 2
+[2026-03-31 12:03:13,635] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved scribbles: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_2_scribbles.json
+[2026-03-31 12:04:24,263] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved prediction: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_2.nii.gz
+[2026-03-31 12:04:24,263] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Dice@2: 0.8711
+[2026-03-31 12:04:24,263] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Iteration 3
+[2026-03-31 12:04:25,538] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved scribbles: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_3_scribbles.json
+[2026-03-31 12:05:36,398] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved prediction: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_3.nii.gz
+[2026-03-31 12:05:36,398] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Dice@3: 0.8784
+[2026-03-31 12:05:36,398] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Iteration 4
+[2026-03-31 12:05:37,679] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved scribbles: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_4_scribbles.json
+[2026-03-31 12:06:48,584] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Saved prediction: test/final_output/psma_ffcaa75377465b37_2018-03-04_0000/iter_4.nii.gz
+[2026-03-31 12:06:48,584] [INFO] [psma_ffcaa75377465b37_2018-03-04_0000] Dice@4: 0.8877
+[2026-03-31 12:06:48,584] [INFO] All cases processed
+[2026-03-31 12:06:48,584] [INFO] AUC results saved to: test/final_output/dice_scores_AUC.json

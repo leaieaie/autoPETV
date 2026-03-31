@@ -242,6 +242,8 @@ def save_heatmap_nifti(heatmap, reference_nifti, output_path):
     out = nib.Nifti1Image(heatmap.astype(np.float32), ref.affine, ref.header)
     nib.save(out, output_path)
 
+    
+
 
 # ------------------------------------------------
 # SCRIBBLE PIPELINE
@@ -275,6 +277,19 @@ def scribbles_to_gc_format(input_scribbles, gc_json_path=None):
         print(f'Finished converting to {gc_json_path} in the GC format!')
     else:
         return gc_dict
+
+def gc_to_swfastedit_format(gc_dict):
+    swfast_dict = {
+        "tumor": [],
+        "background": []
+    }
+    
+    for point in gc_dict.get("points", []):
+        if point["name"] == "tumor":
+            swfast_dict["tumor"].append(point["point"])
+        elif point["name"] == "background":
+            swfast_dict["background"].append(point["point"])
+    return swfast_dict
 
 def get_random_k_components(label, k=5, seed=42):
     """
@@ -348,7 +363,7 @@ def heatmap_from_coords(coords_xyz, shape, sigma=1.0):
         if 0 <= x < shape[0] and 0 <= y < shape[1] and 0 <= z < shape[2]:
             heatmap[x, y, z] = 1.0
     # Smooth with Gaussian filter
-    if sigma > 0:
+    if sigma >= 0:
         heatmap = gaussian_filter(heatmap, sigma=sigma)
     return heatmap
 
@@ -372,41 +387,72 @@ def generate_heatmap_from_scribbles(scribble_vol, sigma=0):
     return generate_gaussian_heatmap(coords.tolist(), scribble_vol.shape, sigma=sigma)
 
 def simulate_scribble_from_label(label_array, strategy="centerline", seed=42):
+    """
+    Slice-wise component selection:
+    - iterate over slices
+    - find largest 2D connected component per slice
+    - pick slice with largest component overall
+    """
 
-    labels = cc3d.connected_components(label_array, connectivity=26)
+    best_slice = None
+    best_component = None
+    best_area = 0
 
-    unique, counts = np.unique(labels, return_counts=True)
-    counts_dict = dict(zip(unique, counts))
-    counts_dict.pop(0, None)
+    # iterate over slices (z-axis)
+    for z in range(label_array.shape[2]):
+        slice_mask = label_array[:, :, z]
 
-    largest_label = max(counts_dict, key=counts_dict.get)
-    largest_component = (labels == largest_label).astype(np.uint8)
+        if np.sum(slice_mask) == 0:
+            continue
 
-    slice_sums = largest_component.sum(axis=(0,1))
-    best_slice = slice_sums.argmax()
+        # 2D connected components
+        labels_2d = cc3d.connected_components(slice_mask, connectivity=8)
 
-    slice_mask = largest_component[:,:,best_slice]
+        unique, counts = np.unique(labels_2d, return_counts=True)
+        counts_dict = dict(zip(unique, counts))
+        counts_dict.pop(0, None)
 
+        if not counts_dict:
+            continue
+
+        # largest component in this slice
+        largest_label = max(counts_dict, key=counts_dict.get)
+        area = counts_dict[largest_label]
+
+        if area > best_area:
+            best_area = area
+            best_slice = z
+            best_component = (labels_2d == largest_label).astype(np.uint8)
+
+    # fallback if nothing found
+    if best_component is None:
+        return [], False
+
+    # generate scribble on best slice
     try:
         if strategy == "centerline":
-            scribble_slice, _ = scribble_centerline(slice_mask)
+            scribble_slice, _ = scribble_centerline(best_component)
         elif strategy == "boundary":
-            scribble_slice, _ = scribble_boundary(slice_mask, seed)
+            scribble_slice, _ = scribble_boundary(best_component, seed)
         else:
-            scribble_slice, _ = scribble_random(slice_mask, seed)
-    except:
-        scribble_slice, _ = scribble_random(slice_mask, seed)
+            scribble_slice, _ = scribble_random(best_component, seed)
+    except Exception:
+        scribble_slice, _ = scribble_random(best_component, seed)
 
-    scribble_vol = np.zeros_like(largest_component)
-    scribble_vol[:,:,best_slice] = scribble_slice
+    # place into volume
+    scribble_vol = np.zeros_like(label_array, dtype=np.uint8)
+    scribble_vol[:, :, best_slice] = scribble_slice
 
+    # convert to xyz format
     coords = np.argwhere(scribble_vol > 0)
+    coords_xyz = [[int(c[0]), int(c[1]), int(c[2])] for c in coords]
 
-    coords_xyz = [[int(c[1]), int(c[0]), int(c[2])] for c in coords]
-
+    # determine class (foreground/background)
     label_cls = (np.sum(label_array * scribble_vol) > 0)
 
-    return coords_xyz, label_cls
+    size = np.sum(scribble_vol)
+
+    return coords_xyz, label_cls, size
 
 
 if __name__ == "__main__":

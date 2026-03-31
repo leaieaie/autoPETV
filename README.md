@@ -3,6 +3,8 @@ Official repository for autoPET V machine learning challenge
 
 ---
 
+
+
 ## Scribble Simulation
 
 All the scribble simulation logic is implemented in `simulate_scribbles.py`
@@ -55,3 +57,11 @@ Each test case will be evaluated over **6 interactive steps**: one initial predi
    - If the largest error is **over-segmentation** → apply a **background scribble**
    - If the largest error is **under-segmentation** → apply a **foreground scribble**
    - Then generate a new prediction **with the updated scribbles**
+
+
+## Infer with the Baseline nnUNet Model
+Make sure you have `git lfs` installed and have downloaded all large files from the repository. 
+ 
+```python
+python interactive_loop.py --input_cases test/ --input_interface test/ --result_dir test/final_output/ --strategy random
+```

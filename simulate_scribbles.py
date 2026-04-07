@@ -488,6 +488,26 @@ if __name__ == "__main__":
         print("FG heatmap saved (empty):", fg_out)
         print("BG heatmap saved (empty):", bg_out)
 
+        # =========================
+        # SAVE SCRIBBLE JSON + GC FORMAT
+        # =========================
+
+
+        coords_fg = []
+        coords_bg = []
+
+        scribble_json = {
+            "tumor": coords_fg,
+            "background": coords_bg
+        }
+
+        json_out = fg_out.replace('_0002.nii.gz', '_lesion-clicks.json')
+
+        # save GC format
+        scribbles_to_gc_format(scribble_json, json_out)
+
+        print("Scribble JSON saved:", json_out)
+
     else:
         # =========================
         # FOREGROUND SCRIBBLE HEATMAP
@@ -497,10 +517,10 @@ if __name__ == "__main__":
         scribble_fg = generate_scribbles_for_components(
             labels_fg, comp_ids_fg, args.strategy, args.seed
         )
-
+        
         heatmap_fg = generate_heatmap_from_scribbles(scribble_fg, sigma=0)
 
-
+        
         # =========================
         # BACKGROUND SCRIBBLE HEATMAP
         # =========================
@@ -509,9 +529,9 @@ if __name__ == "__main__":
 
         bg_region = (dilated.astype(np.uint8) - data.astype(np.uint8)) > 0
         bg_region = bg_region.astype(np.uint8)
-
+        
         labels_bg, comp_ids_bg = get_random_k_components(bg_region, k=5)
-
+        
         scribble_bg = generate_scribbles_for_components(
             labels_bg, comp_ids_bg, args.strategy, args.seed
         )
@@ -525,10 +545,30 @@ if __name__ == "__main__":
 
         fg_out = os.path.join(args.heatmap_out, os.path.basename(args.nifti).replace('.nii.gz', '_0002.nii.gz'))  # _0002
         bg_out = fg_out.replace('_0002.nii.gz', '_0003.nii.gz')
-
+        
         save_heatmap_nifti(heatmap_fg, args.nifti, fg_out)
         save_heatmap_nifti(heatmap_bg, args.nifti, bg_out)
 
         print("FG heatmap saved:", fg_out)
         print("BG heatmap saved:", bg_out)
+        
+        # =========================
+        # SAVE SCRIBBLE JSON + GC FORMAT
+        # =========================
+        coords_fg = np.argwhere(scribble_fg > 0)
+        coords_bg = np.argwhere(scribble_bg > 0)
 
+        coords_fg = [[int(x), int(y), int(z)] for x, y, z in coords_fg]
+        coords_bg = [[int(x), int(y), int(z)] for x, y, z in coords_bg]
+
+        scribble_json = {
+            "tumor": coords_fg,
+            "background": coords_bg
+        }
+
+        json_out = fg_out.replace('_0002.nii.gz', '_lesion-clicks.json')
+
+        # save GC format
+        scribbles_to_gc_format(scribble_json, json_out)
+
+        print("Scribble JSON saved:", json_out)

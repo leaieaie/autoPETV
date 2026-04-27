@@ -1,67 +1,57 @@
-# autoPETV
-Official repository for autoPET V machine learning challenge
+![](https://public.grand-challenge-user-content.org/b/842/autoPET-2026-banner-1/2200w.avif)
+# autoPET V
+Official repository for autoPET V machine learning challenge:<br>
+[autopet-v.grand-challenge.org](https://autopet-v.grand-challenge.org)<br>
+[www.autopet.org](www.autopet.org)<br>
 
----
-
-
-
-## Scribble Simulation
-
-All the scribble simulation logic is implemented in `simulate_scribbles.py`
-
-Given a binary volume `L`, we simulate scribbles using the following procedure:
-
-1. Identify the slice with the largest foreground area in `L`
-2. Generate a scribble within this slice using one of three strategies:
-   - `centerline`
-   - `random`
-   - `boundary`
-3. Export the result either as:
-   - a `JSON` file containing scribble coordinates, or
-   - a `NIfTI` file with the same spatial dimensions as the PET/CT images containing Gaussian Heatmaps of the scribbles
-
----
-
-### How to simulate a scribble from a binary NumPy array
-If you want to simulate scribbels from a binary array, for example the grount-truth label or from the model's error, you can use our simulation functions as follows:
-
-```python
-from simulate_scribbles import simulate_scribble_from_label, generate_heatmap_from_scribbles
-
-your_binary_numpy_array = some_function(...)
-strategy = "centerline"  # alternatives: "random", "boundary"
-sigma = 0  # Gaussian heatmap radius
-
-# Generate scribble coordinates and class label
-scribbles, label_cls = simulate_scribble_from_label(
-    your_binary_numpy_array,
-    strategy
-)
-
-# Optionally convert scribbles to a Gaussian heatmap volume
-heatmap_volume = generate_heatmap_from_scribbles(
-    scribbles,
-    sigma=0
-)
-```
-You can then use either `scribbles` (3D coordinates) or `heatmap_volume` (3D volume) in your models. For more details on the implementation, see `simulate_scribbles.py`
-
-### How scribbles will be simulated during testing
-
-We use the script `interactive_loop.py` to simulate scribbles during the test phase. Three types of scribbles: **centerline**, **random**, and **boundary**, will be distributed uniformly across all test cases (each type applied to one-third of the cases, consistent for all participants).
-
-Each test case will be evaluated over **6 interactive steps**: one initial prediction followed by five corrective steps.
-
-1. **Step 1:** Prediction **without scribbles**
-2. **Steps 2–6:** Iterative correction using simulated scribbles based on the model’s largest error region:
-   - If the largest error is **over-segmentation** → apply a **background scribble**
-   - If the largest error is **under-segmentation** → apply a **foreground scribble**
-   - Then generate a new prediction **with the updated scribbles**
+## Content
+- [nnUNet baseline model](nnunet-baseline/)
+- [Algorithm/container setup for grand-challenge](test/)
+- [Interactive scribbles](interactive/)
+- [Tutorials](tutorials/)
+   - [New evaluation metrics](tutorials/metrics-tutorial.ipynb)
+   - [Interactive scribble simulation](tutorials/scribble-simulation-tutorial.ipynb)
+   - [Summary and main findings of autoPET I - IV](tutorials/autoPETI-IV-Summary.pdf)
+- [Publication template](publication_template/)
 
 
-## Infer with the Baseline nnUNet Model
-Make sure you have `git lfs` installed and have downloaded all large files from the repository. 
- 
-```python
-python interactive_loop.py --input_cases test/ --input_interface test/ --result_dir test/final_output/ --strategy random
-```
+## Datasets				
+If you use the data associated to this challenge, please cite: <br/>
+   
+   ```
+   Gatidis S, Kuestner T. A whole-body FDG-PET/CT dataset with manually annotated tumor lesions (FDG-PET-CT-Lesions) 
+   [Dataset]. The Cancer Imaging Archive, 2022. DOI: 10.7937/gkr0-xv29
+
+   Gatidis S., Hepp T., Früh M., La Fougère C., Nikolaou K., Pfannenberg, C., Schölkopf B., Küstner T., 
+   Cyran C., Rubin D. A whole-body FDG-PET/CT Dataset with manually annotated Tumor Lesions. Sci Data 9, 601 (2022). 
+   https://doi.org/10.1038/s41597-022-01718-3
+   ```
+   
+   and
+   <br/>
+   
+   ```
+   Jeblick, K., et al. A whole-body PSMA-PET/CT dataset with manually annotated tumor lesions 
+   (PSMA-PET-CT-Lesions) (Version 1) [Dataset]. The Cancer Imaging Archive, 2024.
+   DOI: 10.7937/r7ep-3x37
+   ```
+
+### FDG PET/CT
+DICOM: <a href="https://doi.org/10.7937/gkr0-xv29"><img src="https://img.shields.io/badge/DOI-10.7937%2Fgkr0--xv29-blue"></a>
+<br/>
+NIfTI: <a href="https://doi.org/10.57754/FDAT.wf9fy-txq84"><img src="https://img.shields.io/badge/DOI-10.57754%2FFDAT.wf9fy--txq84-blue"></a>
+    
+### PSMA PET/CT
+DICOM:  <a href="https://doi.org/10.7937/r7ep-3x37 "><img src="https://img.shields.io/badge/DOI-10.7937%2Fr7ep--3x37-blue"></a>
+<br/>
+NIfTI: <a href="https://doi.org/10.57754/FDAT.6gjsg-zcg93"><img src="https://img.shields.io/badge/DOI-10.57754%2FFDAT.6gjsg--zcg93-blue"></a>
+
+### FDG-PSMA PET/CT
+NIfTI: <a href="https://doi.org/10.57754/FDAT.rdkqd-wdh87"><img src="https://img.shields.io/badge/DOI-10.57754%2FFDAT.rdkqd--wdh87-blue"></a>
+
+### Longitudinal CT
+NIfTI: <a href="https://doi.org/10.57754/FDAT.qwsry-7t837"><img src="https://img.shields.io/badge/DOI-10.57754%2FFDAT.qwsry--7t837-blue"></a>
+
+### DeepPSMA
+NIfTI: <a href="https://doi.org/10.5281/zenodo.15281784"><img src="https://img.shields.io/badge/DOI-10.5281%2Fzenodo.15281784-blue"></a>
+

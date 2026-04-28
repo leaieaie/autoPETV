@@ -117,6 +117,29 @@ def main():
     log_file = os.path.join(args.result_dir, "run.log")
     logger = setup_logger(log_file)
 
+    # Check model weights before starting
+    logger.info("Checking model weights...")
+    weight_check_script = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)),
+        "nnunet-baseline",
+        "check_weights.sh"
+    )
+    try:
+        result = subprocess.run(
+            ["bash", weight_check_script],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=600
+        )
+        logger.info("Weight check passed")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"Weight check failed: {e.stderr}")
+        raise RuntimeError("Model weights are not properly downloaded. Cannot proceed.")
+    except subprocess.TimeoutExpired:
+        logger.error("Weight check timed out")
+        raise RuntimeError("Weight check took too long. Please check manually.")
+
     logger.info("Starting interactive segmentation pipeline")
 
     # -------------------------------------------------------------------------

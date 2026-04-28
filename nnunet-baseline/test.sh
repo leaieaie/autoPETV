@@ -7,6 +7,15 @@ SCRIPTPATH="$(dirname "$( cd "$(dirname "$0")" ; pwd -P )")"
 SCRIPTPATHCURR="$( cd "$(dirname "$0")" ; pwd -P )"
 echo $SCRIPTPATH
 
+# Check and download weights if necessary
+echo "Checking model weights..."
+bash "$SCRIPTPATHCURR/check_weights.sh"
+if [ $? -ne 0 ]; then
+    echo "ERROR: Weight check failed. Cannot proceed with test."
+    exit 1
+fi
+
+echo ""
 #./build.sh
 
 VOLUME_SUFFIX=$(dd if=/dev/urandom bs=32 count=1 | md5sum | cut --delimiter=' ' --fields=1)

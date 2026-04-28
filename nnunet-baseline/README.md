@@ -8,15 +8,23 @@ documentation](https://grand-challenge.org/documentation/).
 Best ranked model wins! The rules are simple: Train a model which generalizes well on FDG and PSMA data using scribbles as additional input. This baseline model is out of competition!
 
 ## Usage 
+In order to use the baseline you first need to unzip the baseline weights via `bash unzip_model_weights.sh`. Please make sure you downloaded the weights via GIT LFS!
+We have automated the weight download when you run `bash build.sh` or `bash test.sh`. In order to upload the container, you will need to save the image via `bash export.sh`.
 
-In order to use the baseline you first need to unzip the baseline weights via `bash unzip_model_weights.sh`. 
-After that you can build the container by running `bash build.sh`. In order to upload the container, you will need to
-save the image via `bash export.sh`.
+**Optional:** For faster downloads, install `gdown`:
+```bash
+pip install gdown
+```
 
 ## Testing
 
 Use a python 3.10 based environment and install the requirements.txt file via `pip install -r requirements.txt`. 
-Make sure model weights exist in `/nnUNet_results`. Unzip the baseline weights by running `bash unzip_model_weights.sh`. 
+
+**Note:** Model weights are now checked automatically. When you run `bash test.sh`, the script will verify that weights 
+are properly downloaded and will automatically fetch them from Google Drive if needed.
+
+Alternatively, you can manually ensure model weights exist in `/nnUNet_results` by running `bash unzip_model_weights.sh`. 
+
 Then run `bash create_expected_output.sh` to create an expected_output mask. After that you can run `bash test.sh`.
 
 ## Baseline Method

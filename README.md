@@ -8,6 +8,7 @@ Official repository for autoPET V machine learning challenge:<br>
 - [nnUNet baseline model](nnunet-baseline/)
 - [Algorithm/container setup for grand-challenge](test/)
 - [Interactive scribbles](interactive/)
+- [DeepPSMA dataset in nnUNet format](DeepPSMA)
 - [Tutorials](tutorials/)
    - [New evaluation metrics](tutorials/metrics-tutorial.ipynb)
    - [Interactive scribble simulation](tutorials/scribble-simulation-tutorial.ipynb)

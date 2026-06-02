@@ -1,3 +1,8 @@
+from pathlib import Path
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import os
 import json
 import argparse
@@ -18,6 +23,8 @@ from simulate_scribbles import (
     heatmap_from_coords,
     save_heatmap_nifti,
 )
+
+from metrics import MetricEvaluator
 
 # Disable SimpleITK warnings
 sitk.ProcessObject_SetGlobalWarningDisplay(False)
@@ -142,6 +149,8 @@ def main():
 
     logger.info("Starting interactive segmentation pipeline")
 
+    metrics_evaluator = MetricEvaluator()
+
     # -------------------------------------------------------------------------
     # Collect data
     # -------------------------------------------------------------------------
@@ -152,7 +161,7 @@ def main():
     pets = sorted([os.path.join(image_dir, f) for f in os.listdir(image_dir) if "_0001" in f])
     labels = sorted([os.path.join(label_dir, f) for f in os.listdir(label_dir)])
 
-    output_dice_file = os.path.join(args.result_dir, "dice_scores.json")
+    output_dice_file = os.path.join(args.result_dir, "metric_scores.json")
     case_dict: Dict[str, List[Dict]] = {}
 
     # Interface paths
@@ -201,6 +210,7 @@ def main():
 
             output_json = os.path.join(args.input_interface, "input", "lesion-clicks.json")
             prev_dice = None
+            prec_dmm = None
 
             # -----------------------------------------------------------------
             # Iteration loop
@@ -216,6 +226,7 @@ def main():
                         if empty_gt:
                             logger.info("Empty GT → reusing previous Dice")
                             dice = prev_dice if prev_dice is not None else 0.0
+                            dmm = prev_dmm if prev_dmm is not None else 0.0
 
                         else:
                             seg_path = os.path.join(seg_dir, f"case_{tag}.mha")
@@ -275,7 +286,14 @@ def main():
                     os.remove(seg_nii)
 
                     dice = dice_score(pred, gt)
-                    dmm = detection_matching_metric(pred, gt)
+
+                    dmm = metrics_evaluator(
+                        prediction=pred.astype(np.uint8),
+                        ground_truth=gt.astype(np.uint8),
+                        case_name="case1"
+                    )['f1']
+
+
 
                     # Save intermediate prediction 
                     try:
@@ -292,6 +310,7 @@ def main():
                     dice, dmm = 0.0, 0.0
 
                 prev_dice = float(dice)
+                prev_dmm = float(dmm)
 
                 case_dict[tag].append(
                     {"iteration": it, "dice": float(dice), "dmm": float(dmm)}
@@ -327,10 +346,13 @@ def main():
 
         iterations = np.array([r["iteration"] for r in records], dtype=float)
         dice = np.array([r["dice"] for r in records], dtype=float)
+        dmm = np.array([r["dmm"] for r in records], dtype=float)
 
-        auc = np.trapz(dice, iterations)
 
-        auc_results[case_id] = {"auc": float(auc)}
+        auc_dice = np.trapz(dice, iterations)
+        auc_dmm = np.trapz(dmm, iterations)
+
+        auc_results[case_id] = {"auc_dice": float(auc_dice), "auc_dmm": float(auc_dmm)}
 
     auc_output_file = output_dice_file.replace(".json", "_AUC.json")
 

@@ -22,9 +22,9 @@ This script:
   3) writes a 4-channel dataset.json (CT/PET/FG/BG)
 
 Usage (PowerShell):
-  python scripts/prep_fdat.py `
-      --dataset D:\autopet\dataset\Dataset998_AutoPETV `
-      --scribbles_zip C:\Users\USER\autoPETV\nnunet-baseline\lesion-scribbles.zip
+  python scripts/prep_fdat.py \
+      --dataset D:/autopet/dataset/Dataset998_AutoPETV \
+      --scribbles_zip C:/Users/USER/autoPETV/nnunet-baseline/lesion-scribbles.zip
 """
 import os
 import sys

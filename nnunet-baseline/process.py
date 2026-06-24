@@ -143,7 +143,8 @@ class Autopet_baseline:
           - any component that contains a FOREGROUND click is kept (protected)
           - if a component is hit by both, FG protection wins
         Operates in-place on the predicted .nii.gz at self.result_path/self.nii_seg_file.
-        Clicks are in (z, y, x) voxel index order matching the SimpleITK array layout.
+        Clicks are nibabel (i, j, k) == GC (x, y, z) voxel order; the SimpleITK seg array
+        is reversed to (z, y, x), so clicks are transposed before indexing (see _label_at).
         """
         seg_path = os.path.join(self.result_path, self.nii_seg_file)
         if not os.path.exists(seg_path):
@@ -170,9 +171,13 @@ class Autopet_baseline:
             return
 
         def _label_at(c):
-            z, y, x = int(c[0]), int(c[1]), int(c[2])
-            if 0 <= z < cc.shape[0] and 0 <= y < cc.shape[1] and 0 <= x < cc.shape[2]:
-                return int(cc[z, y, x])
+            # Clicks are nibabel (i, j, k) == GC (x, y, z) voxel order -- the same order
+            # utils.save_click_heatmaps() indexes. The seg array here comes from
+            # SimpleITK.GetArrayFromImage(), which is REVERSED to (k, j, i) == (z, y, x).
+            # So map nibabel (i, j, k) -> sitk array index [k, j, i].
+            i, j, k = int(c[0]), int(c[1]), int(c[2])
+            if 0 <= k < cc.shape[0] and 0 <= j < cc.shape[1] and 0 <= i < cc.shape[2]:
+                return int(cc[k, j, i])
             return 0
 
         kill = {lbl for lbl in (_label_at(c) for c in bg) if lbl > 0}

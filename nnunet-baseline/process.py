@@ -3,6 +3,9 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
+
+import cc3d
+import numpy as np
 import SimpleITK
 import torch
 
@@ -133,7 +136,60 @@ class Autopet_baseline:
         # printed.
         print("Prediction finished")
 
-   
+    def apply_scribble_postprocess(self):
+        """
+        Reconcile the prediction with user scribbles:
+          - any predicted connected component that contains a BACKGROUND click is removed
+          - any component that contains a FOREGROUND click is kept (protected)
+          - if a component is hit by both, FG protection wins
+        Operates in-place on the predicted .nii.gz at self.result_path/self.nii_seg_file.
+        Clicks are in (z, y, x) voxel index order matching the SimpleITK array layout.
+        """
+        seg_path = os.path.join(self.result_path, self.nii_seg_file)
+        if not os.path.exists(seg_path):
+            print("[postproc] seg file missing, skipping")
+            return
+        click_files = [f for f in os.listdir(self.lesion_click_path) if f.endswith(".json")]
+        if not click_files:
+            print("[postproc] no clicks file, skipping")
+            return
+        with open(os.path.join(self.lesion_click_path, click_files[0]), "r") as f:
+            clicks = json.load(f)
+        fg = clicks.get("tumor", []) or []
+        bg = clicks.get("background", []) or []
+
+        seg_img = SimpleITK.ReadImage(seg_path)
+        seg = SimpleITK.GetArrayFromImage(seg_img).astype(np.uint8)
+        if seg.sum() == 0:
+            print("[postproc] empty prediction; nothing to do")
+            return
+
+        cc = cc3d.connected_components(seg, connectivity=26)
+        n_comp = int(cc.max())
+        if n_comp == 0:
+            return
+
+        def _label_at(c):
+            z, y, x = int(c[0]), int(c[1]), int(c[2])
+            if 0 <= z < cc.shape[0] and 0 <= y < cc.shape[1] and 0 <= x < cc.shape[2]:
+                return int(cc[z, y, x])
+            return 0
+
+        kill = {lbl for lbl in (_label_at(c) for c in bg) if lbl > 0}
+        protect = {lbl for lbl in (_label_at(c) for c in fg) if lbl > 0}
+        kill -= protect  # contradiction → trust the FG signal
+
+        if not kill:
+            print(f"[postproc] no components removed (fg_clicks={len(fg)}, bg_clicks={len(bg)}, components={n_comp}, protected={len(protect)})")
+            return
+
+        mask_kill = np.isin(cc, list(kill))
+        seg[mask_kill] = 0
+        out = SimpleITK.GetImageFromArray(seg)
+        out.CopyInformation(seg_img)
+        SimpleITK.WriteImage(out, seg_path, True)
+        print(f"[postproc] removed {len(kill)}/{n_comp} component(s) hit by bg clicks; protected={len(protect)}")
+
     def process(self):
         """
         Read inputs from /input, process with your algorithm and write to /output
@@ -144,6 +200,8 @@ class Autopet_baseline:
         uuid = self.load_inputs()
         print("Start prediction")
         self.predict()
+        print("Start scribble-aware post-processing")
+        self.apply_scribble_postprocess()
         print("Start output writing")
         self.write_outputs(uuid)
 

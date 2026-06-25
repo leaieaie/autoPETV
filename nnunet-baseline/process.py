@@ -119,18 +119,50 @@ class Autopet_baseline:
 
     def predict(self):
         """
-        Your algorithm goes here
+        Run nnUNetv2 inference with reduced (4x) test-time mirroring.
+
+        Full 8x mirror TTA measured ~95s/predict (~146s/step) on RTX 3060, which
+        risks the 15 min/case budget over 6 interactive steps (and the eval GPU
+        is a slower T4). Restricting mirroring to 2 axes (4x) ~halves predict time
+        while keeping most of the TTA benefit. The CLI nnUNetv2_predict cannot
+        select mirror axes, so we drive the predictor API directly.
         """
-        print("nnUNet segmentation starting!")
-        cproc = subprocess.run(
-            f"nnUNetv2_predict -i {self.nii_path} -o {self.result_path} -d 998 -c 3d_fullres -f 0",
-            shell=True,
-            check=True,
+        import torch
+        from nnunetv2.inference.predict_from_raw_data import nnUNetPredictor
+
+        print("nnUNet segmentation starting (4x mirror TTA)!")
+        predictor = nnUNetPredictor(
+            tile_step_size=0.5,
+            use_gaussian=True,
+            use_mirroring=True,
+            perform_everything_on_device=True,
+            device=torch.device("cuda", 0),
+            verbose=False,
+            allow_tqdm=True,
         )
-        print(cproc)
-        # since nnUNet_predict call is split into prediction and postprocess, a pre-mature exit code is received but
-        # segmentation file not yet written. This hack ensures that all spawned subprocesses are finished before being
-        # printed.
+        model_folder = os.path.join(
+            os.environ["nnUNet_results"],
+            "Dataset998_AutoPETV",
+            "nnUNetTrainer__nnUNetPlans__3d_fullres",
+        )
+        predictor.initialize_from_trained_model_folder(
+            model_folder, use_folds=(0,), checkpoint_name="checkpoint_final.pth"
+        )
+        # Keep only 2 mirror axes (4x) instead of the trained full set (8x) to fit
+        # the per-case time budget. Intersect so we never enable an untrained axis.
+        trained_axes = predictor.allowed_mirroring_axes
+        if trained_axes:
+            predictor.allowed_mirroring_axes = tuple(a for a in trained_axes if a in (0, 1))
+        print(f"[tta] mirror axes: trained={trained_axes} -> used={predictor.allowed_mirroring_axes}")
+
+        predictor.predict_from_files(
+            self.nii_path,
+            self.result_path,
+            save_probabilities=False,
+            overwrite=True,
+            num_processes_preprocessing=1,
+            num_processes_segmentation_export=1,
+        )
         print("Prediction finished")
 
    

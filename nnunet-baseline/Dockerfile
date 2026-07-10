@@ -14,6 +14,7 @@ ENV PATH="/home/algorithm/.local/bin:${PATH}"
 COPY --chown=algorithm:algorithm requirements.txt /opt/algorithm/
 COPY --chown=algorithm:algorithm process.py /opt/algorithm/
 COPY --chown=algorithm:algorithm utils.py /opt/algorithm/
+COPY --chown=algorithm:algorithm click_encoding.py /opt/algorithm/
 COPY --chown=algorithm:algorithm nnUNet_results /opt/algorithm/nnUNet_results
 
 RUN python -m pip install --user -U pip && \

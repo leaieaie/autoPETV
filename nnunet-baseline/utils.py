@@ -157,18 +157,23 @@ def generate_gaussian_heatmap(coords, shape, sigma=0.0):
         if 0 <= coord[0] < shape[0] and 0 <= coord[1] < shape[1] and 0 <= coord[2] < shape[2]:
             heatmap[tuple(coord)] = 1.0
 
-    heatmap = gaussian_filter(heatmap, sigma=sigma)    
+    heatmap = gaussian_filter(heatmap, sigma=sigma)
     return heatmap
 
 def save_click_heatmaps(clicks, output, input_pet):
+    # EDT encoding: clicks are encoded as a smooth exp(-d/tau) distance field
+    # (see click_encoding.py). This MUST match the training transform
+    # (OnTheFlyClickTransform) and requires ch2/ch3 = NoNormalization in plans.json.
+    from click_encoding import encode_clicks_edt
+
     pet_img = nib.load(input_pet)
     ref_shape = pet_img.shape
     ref_affine = pet_img.affine
     tumor_coords = clicks['tumor']
     non_tumor_coords = clicks['background']
-    
-    tumor_heatmap = generate_gaussian_heatmap(tumor_coords, ref_shape, 0)
-    non_tumor_heatmap = generate_gaussian_heatmap(non_tumor_coords, ref_shape, 0)
+
+    tumor_heatmap = encode_clicks_edt(tumor_coords, ref_shape)
+    non_tumor_heatmap = encode_clicks_edt(non_tumor_coords, ref_shape)
 
     tumor_nifti = nib.Nifti1Image(tumor_heatmap, ref_affine)
     non_tumor_nifti = nib.Nifti1Image(non_tumor_heatmap, ref_affine)

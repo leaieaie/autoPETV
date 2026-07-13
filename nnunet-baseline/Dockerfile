@@ -11,12 +11,9 @@ WORKDIR /opt/algorithm
 
 ENV PATH="/home/algorithm/.local/bin:${PATH}"
 
+# Install deps first (before code/weights) so that changing weights or code
+# does not invalidate the pip layer -> fast rebuilds when iterating on weights.
 COPY --chown=algorithm:algorithm requirements.txt /opt/algorithm/
-COPY --chown=algorithm:algorithm process.py /opt/algorithm/
-COPY --chown=algorithm:algorithm utils.py /opt/algorithm/
-COPY --chown=algorithm:algorithm click_encoding.py /opt/algorithm/
-COPY --chown=algorithm:algorithm nnUNet_results /opt/algorithm/nnUNet_results
-
 RUN python -m pip install --user -U pip && \
     python -m pip install --user -r requirements.txt && \
     mkdir -p /opt/algorithm/nnUNet_raw && \
@@ -24,6 +21,11 @@ RUN python -m pip install --user -U pip && \
     mkdir -p /opt/algorithm/nnUNet_raw_data_base/nnUNet_raw_data/Task001_TCIA/imagesTs && \
     mkdir -p /opt/algorithm/nnUNet_raw_data_base/nnUNet_raw_data/Task001_TCIA/clicksTs && \
     mkdir -p /opt/algorithm/nnUNet_raw_data_base/nnUNet_raw_data/Task001_TCIA/result
+
+COPY --chown=algorithm:algorithm process.py /opt/algorithm/
+COPY --chown=algorithm:algorithm utils.py /opt/algorithm/
+COPY --chown=algorithm:algorithm click_encoding.py /opt/algorithm/
+COPY --chown=algorithm:algorithm nnUNet_results /opt/algorithm/nnUNet_results
 
 ENV nnUNet_raw="/opt/algorithm/nnUNet_raw"
 ENV nnUNet_preprocessed="/opt/algorithm/nnUNet_preprocessed"

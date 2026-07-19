@@ -36,45 +36,69 @@ def load_case(path):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--prep", default=PREP_DEFAULT)
-    ap.add_argument("--n", type=int, default=12, help="how many cases to inspect")
+    ap.add_argument("--n", type=int, default=40, help="how many cases to inspect")
+    ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--head", action="store_true",
+                    help="inspect the alphabetically first N instead of a random sample")
     args = ap.parse_args()
 
     files = sorted(f for f in os.listdir(args.prep)
                    if f.endswith(".b2nd") and not f.endswith("_seg.b2nd"))
     if not files:
         raise SystemExit(f"no .b2nd data files under {args.prep}")
-    print(f"found {len(files)} preprocessed cases; inspecting first {min(args.n, len(files))}\n")
 
-    n_ch2_empty = n_ch3_empty = 0
-    inspected = 0
+    # The alphabetically-first cases are all one tracer; sample across the whole
+    # set so a per-tracer difference cannot masquerade as a global result.
+    if args.head:
+        picked = files[:args.n]
+    else:
+        rng = np.random.default_rng(args.seed)
+        idx = rng.choice(len(files), size=min(args.n, len(files)), replace=False)
+        picked = [files[i] for i in sorted(idx)]
 
-    hdr = f"{'case':<42} {'ch2(FG) nonzero':>16} {'ch3(BG) nonzero':>16}  {'ch2 max':>9} {'ch3 max':>9}"
+    from collections import Counter
+    total_by_pfx = Counter(f.split("_")[0] for f in files)
+    print(f"found {len(files)} preprocessed cases {dict(total_by_pfx)}; "
+          f"inspecting {len(picked)} ({'head' if args.head else f'random seed={args.seed}'})\n")
+
+    stats = {}  # prefix -> [n, ch2_empty, ch3_empty]
+    hdr = f"{'case':<44} {'ch2(FG) nonzero':>16} {'ch3(BG) nonzero':>16}  {'ch2 max':>9} {'ch3 max':>9}"
     print(hdr)
     print("-" * len(hdr))
 
-    for f in files[:args.n]:
+    for f in picked:
         data = load_case(os.path.join(args.prep, f))
         if data.shape[0] < 4:
-            print(f"{f:<42} !! only {data.shape[0]} channels")
+            print(f"{f[:44]:<44} !! only {data.shape[0]} channels")
             continue
         ch2, ch3 = data[2], data[3]
         nz2, nz3 = int(np.count_nonzero(ch2)), int(np.count_nonzero(ch3))
-        n_ch2_empty += (nz2 == 0)
-        n_ch3_empty += (nz3 == 0)
-        inspected += 1
-        print(f"{f[:42]:<42} {nz2:>16d} {nz3:>16d}  {float(ch2.max()):>9.3f} {float(ch3.max()):>9.3f}")
+        pfx = f.split("_")[0]
+        s = stats.setdefault(pfx, [0, 0, 0])
+        s[0] += 1
+        s[1] += (nz2 == 0)
+        s[2] += (nz3 == 0)
+        print(f"{f[:44]:<44} {nz2:>16d} {nz3:>16d}  {float(ch2.max()):>9.3f} {float(ch3.max()):>9.3f}")
 
-    print("\n==== VERDICT ====")
-    print(f"inspected            : {inspected}")
-    print(f"ch2 (FG) all-zero    : {n_ch2_empty}/{inspected}")
-    print(f"ch3 (BG) all-zero    : {n_ch3_empty}/{inspected}")
-    if inspected and n_ch3_empty == inspected:
-        print(">> ch3 (background clicks) is EMPTY in every inspected case.")
-        print(">> Confirms the bug: models cannot learn to use BG clicks -> FPs never removed -> low F1/DMM.")
-    elif inspected and n_ch3_empty:
-        print(">> ch3 is empty in SOME cases -- partial BG-click coverage.")
+    print("\n==== VERDICT (per tracer) ====")
+    tot = [0, 0, 0]
+    for pfx, (n, e2, e3) in sorted(stats.items()):
+        print(f"  {pfx:<6} n={n:<4} ch2(FG) all-zero={e2}/{n}   ch3(BG) all-zero={e3}/{n}")
+        tot = [tot[i] + [n, e2, e3][i] for i in range(3)]
+    n, e2, e3 = tot
+    print(f"  {'TOTAL':<6} n={n:<4} ch2(FG) all-zero={e2}/{n}   ch3(BG) all-zero={e3}/{n}")
+
+    print("\n==== READING ====")
+    if n and e2 == n and e3 == n:
+        print(">> BOTH click channels are EMPTY in every inspected case.")
+        print(">> Models saw only dead click channels -> click-blind by construction.")
+        print(">> NOTE: plans fingerprint reports ch2 max=1.0 from the RAW data, so the")
+        print("   clicks existed before preprocessing and were lost by it (or never written).")
+    elif n and (e2 < n or e3 < n):
+        print(">> Click signal IS present in some cases -- coverage is partial, not universal.")
+        print(">> Compare the per-tracer rows above: a tracer-specific gap points at prep_fdat.py.")
     else:
-        print(">> ch3 carries signal; the BG-blindness must come from elsewhere (training/normalization).")
+        print(">> Click channels carry signal; BG-blindness comes from training, not the data.")
 
 
 if __name__ == "__main__":

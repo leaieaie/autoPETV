@@ -55,6 +55,8 @@ def main():
     ap.add_argument("--trainer", default="nnUNetTrainer")
     ap.add_argument("--plans", default="nnUNetPlans")
     ap.add_argument("--config", default="3d_fullres")
+    ap.add_argument("--model_dirname", default=None,
+                    help="exact results subfolder name; overrides trainer__plans__config")
     ap.add_argument("--checkpoint", default="checkpoint_final.pth")
     ap.add_argument("--images", default=IMAGES_DEFAULT)
     ap.add_argument("--labels", default=LABELS_DEFAULT)
@@ -104,8 +106,8 @@ def main():
         device=torch.device("cuda", 0), verbose=False,
         verbose_preprocessing=False, allow_tqdm=False,
     )
-    model_folder = os.path.join(args.results, "Dataset998_AutoPETV",
-                                f"{args.trainer}__{args.plans}__{args.config}")
+    dirname = args.model_dirname or f"{args.trainer}__{args.plans}__{args.config}"
+    model_folder = os.path.join(args.results, "Dataset998_AutoPETV", dirname)
     predictor.initialize_from_trained_model_folder(
         model_folder, use_folds=(args.fold,), checkpoint_name=args.checkpoint)
 
@@ -175,7 +177,7 @@ def main():
     auc_dice = float(np.trapz(mean_dice, steps))
     auc_dmm = float(np.trapz(mean_dmm, steps))
 
-    print("\n==== AGGREGATE (%d cases, %s, encoding=%s) ====" % (len(cases), args.trainer, args.encoding))
+    print("\n==== AGGREGATE (%d cases, %s, encoding=%s) ====" % (len(cases), dirname, args.encoding))
     print("step :  " + "  ".join(f"{i}" for i in range(args.max_iters)))
     print("Dice :  " + "  ".join(f"{v:.3f}" for v in mean_dice))
     print("DMM  :  " + "  ".join(f"{v:.3f}" for v in mean_dmm))
@@ -184,10 +186,10 @@ def main():
     print("  (note: local trapz AUC is area over 6 steps, ~5x the leaderboard's mean scale;")
     print("   compare models to each other here, use the leaderboard for the absolute bar.)")
 
-    out = {"trainer": args.trainer, "encoding": args.encoding, "n_cases": len(cases),
+    out = {"trainer": dirname, "encoding": args.encoding, "n_cases": len(cases),
            "cases": [c for c, _ in cases], "mean_dice": mean_dice.tolist(),
            "mean_dmm": mean_dmm.tolist(), "auc_dice": auc_dice, "auc_dmm": auc_dmm}
-    dst = os.path.join(args.fork, "test", f"mc_eval_{args.trainer}.json")
+    dst = os.path.join(args.fork, "test", f"mc_eval_{dirname}.json")
     json.dump(out, open(dst, "w"), indent=2)
     print(f"saved: {dst}")
 

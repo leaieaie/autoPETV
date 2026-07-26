@@ -60,7 +60,7 @@ def build_inputs(case, ct_path, pet_path, clicks, in_dir, encode_fn):
     nib.save(nib.Nifti1Image(bg.astype(np.float32), aff, hdr), os.path.join(in_dir, f"{case}_0003.nii.gz"))
 
 
-def run_predict(predict_exe, in_dir, out_dir, results_dir):
+def run_predict(predict_exe, in_dir, out_dir, results_dir, trainer):
     os.makedirs(out_dir, exist_ok=True)
     env = dict(os.environ)
     env["nnUNet_results"] = results_dir
@@ -68,7 +68,7 @@ def run_predict(predict_exe, in_dir, out_dir, results_dir):
     env.setdefault("nnUNet_preprocessed", os.path.join(os.path.dirname(results_dir), "_pre"))
     subprocess.run(
         [predict_exe, "-i", in_dir, "-o", out_dir,
-         "-d", "998", "-c", "3d_fullres", "-f", "0", "--disable_tta"],
+         "-d", "998", "-c", "3d_fullres", "-f", "0", "-tr", trainer, "--disable_tta"],
         check=True, env=env,
     )
 
@@ -78,6 +78,8 @@ def main():
     ap.add_argument("--fork", default=FORK_DEFAULT)
     ap.add_argument("--results", default=RESULTS_DEFAULT)
     ap.add_argument("--predict_exe", default=PREDICT_EXE_DEFAULT)
+    ap.add_argument("--trainer", default="nnUNetTrainer",
+                    help="nnUNet trainer name = results subfolder to read")
     ap.add_argument("--case", default="psma_ffcaa75377465b37_2018-03-04")
     ap.add_argument("--strategy", default="random", choices=["centerline", "random", "boundary"])
     ap.add_argument("--max_iters", type=int, default=6)
@@ -131,7 +133,7 @@ def main():
         in_dir = os.path.join(workdir, f"iter_{it}", "in")
         out_dir = os.path.join(workdir, f"iter_{it}", "out")
         build_inputs(case, ct_path, pet_path, clicks, in_dir, encode_fn)
-        run_predict(args.predict_exe, in_dir, out_dir, args.results)
+        run_predict(args.predict_exe, in_dir, out_dir, args.results, args.trainer)
 
         pred = (nib.load(os.path.join(out_dir, f"{case}.nii.gz")).get_fdata() > 0).astype(np.uint8)
         pred_vox = int(pred.sum())

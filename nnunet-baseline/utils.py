@@ -161,22 +161,37 @@ def generate_gaussian_heatmap(coords, shape, sigma=0.0):
     return heatmap
 
 def save_click_heatmaps(clicks, output, input_pet):
-    # EDT encoding: clicks are encoded as a smooth exp(-d/tau) distance field
-    # (see click_encoding.py). This MUST match the training transform
-    # (OnTheFlyClickTransform) and requires ch2/ch3 = NoNormalization in plans.json.
-    from click_encoding import encode_clicks_edt
+    # Point-marker encoding: each click is a single voxel set to 1.0, then nnUNet's
+    # own preprocessing resamples it and applies the ZScore normalization from
+    # plans.json. This reproduces exactly how the training channels were built
+    # (scripts/regen_click_heatmaps.py) for the ClickDropout model. It MUST stay
+    # point-markers + ZScore plans -- NOT the EDT/NoNorm scheme, which belongs to the
+    # (abandoned) on-the-fly trainer and would mismatch this model.
+    # Click coords are [x, y, z] indexed straight into the nibabel array; verified
+    # against ground truth (scripts/verify_click_axis_order.py: 42/42 tumor clicks
+    # land on the lesion under this convention).
+    import numpy as np
 
     pet_img = nib.load(input_pet)
     ref_shape = pet_img.shape
     ref_affine = pet_img.affine
-    tumor_coords = clicks['tumor']
-    non_tumor_coords = clicks['background']
+    ref_header = pet_img.header
 
-    tumor_heatmap = encode_clicks_edt(tumor_coords, ref_shape)
-    non_tumor_heatmap = encode_clicks_edt(non_tumor_coords, ref_shape)
+    def markers(coords):
+        arr = np.zeros(ref_shape, dtype=np.float32)
+        for c in coords:
+            if len(c) != 3:
+                continue
+            x, y, z = int(round(c[0])), int(round(c[1])), int(round(c[2]))
+            if 0 <= x < ref_shape[0] and 0 <= y < ref_shape[1] and 0 <= z < ref_shape[2]:
+                arr[x, y, z] = 1.0
+        return arr
 
-    tumor_nifti = nib.Nifti1Image(tumor_heatmap, ref_affine)
-    non_tumor_nifti = nib.Nifti1Image(non_tumor_heatmap, ref_affine)
+    tumor_heatmap = markers(clicks['tumor'])
+    non_tumor_heatmap = markers(clicks['background'])
+
+    tumor_nifti = nib.Nifti1Image(tumor_heatmap, ref_affine, ref_header)
+    non_tumor_nifti = nib.Nifti1Image(non_tumor_heatmap, ref_affine, ref_header)
 
     os.makedirs(output, exist_ok = True)
 

@@ -31,4 +31,11 @@ ENV nnUNet_raw="/opt/algorithm/nnUNet_raw"
 ENV nnUNet_preprocessed="/opt/algorithm/nnUNet_preprocessed"
 ENV nnUNet_results="/opt/algorithm/nnUNet_results"
 
+# Click encoding for the ResEncM on-the-fly EDT model (must be edt + NoNorm plans).
+ENV CLICK_ENCODING="edt"
+
+# Distinct build tag so the image digest differs from earlier uploads; Grand
+# Challenge rejects re-uploads of an identical image digest ("already uploaded").
+LABEL org.autopet.build="resencm-otf-v2"
+
 ENTRYPOINT ["python", "-m", "process"]

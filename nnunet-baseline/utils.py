@@ -161,34 +161,41 @@ def generate_gaussian_heatmap(coords, shape, sigma=0.0):
     return heatmap
 
 def save_click_heatmaps(clicks, output, input_pet):
-    # Point-marker encoding: each click is a single voxel set to 1.0, then nnUNet's
-    # own preprocessing resamples it and applies the ZScore normalization from
-    # plans.json. This reproduces exactly how the training channels were built
-    # (scripts/regen_click_heatmaps.py) for the ClickDropout model. It MUST stay
-    # point-markers + ZScore plans -- NOT the EDT/NoNorm scheme, which belongs to the
-    # (abandoned) on-the-fly trainer and would mismatch this model.
-    # Click coords are [x, y, z] indexed straight into the nibabel array; verified
-    # against ground truth (scripts/verify_click_axis_order.py: 42/42 tumor clicks
-    # land on the lesion under this convention).
+    # Click encoding MUST match how the submitted model was trained:
+    #   CLICK_ENCODING=edt   (default) -> exp(-d/tau) EDT field, for the on-the-fly
+    #       EDT trainer (nnUNetTrainer_OnTheFlyClicks, incl. the ResEncM-OTF model);
+    #       requires ch2/ch3 = NoNormalization in plans.json.
+    #   CLICK_ENCODING=point -> single-voxel markers + ZScore plans, for the
+    #       ClickDropout / standard point-marker models.
+    # Coords are [x, y, z] indexed straight into the nibabel array; verified against
+    # ground truth (scripts/verify_click_axis_order.py: 42/42 tumor clicks on lesion).
     import numpy as np
 
+    mode = os.environ.get("CLICK_ENCODING", "edt").lower()
     pet_img = nib.load(input_pet)
     ref_shape = pet_img.shape
     ref_affine = pet_img.affine
     ref_header = pet_img.header
 
-    def markers(coords):
-        arr = np.zeros(ref_shape, dtype=np.float32)
-        for c in coords:
-            if len(c) != 3:
-                continue
-            x, y, z = int(round(c[0])), int(round(c[1])), int(round(c[2]))
-            if 0 <= x < ref_shape[0] and 0 <= y < ref_shape[1] and 0 <= z < ref_shape[2]:
-                arr[x, y, z] = 1.0
-        return arr
+    if mode == "point":
+        def encode(coords):
+            arr = np.zeros(ref_shape, dtype=np.float32)
+            for c in coords:
+                if len(c) != 3:
+                    continue
+                x, y, z = int(round(c[0])), int(round(c[1])), int(round(c[2]))
+                if 0 <= x < ref_shape[0] and 0 <= y < ref_shape[1] and 0 <= z < ref_shape[2]:
+                    arr[x, y, z] = 1.0
+            return arr
+    else:
+        from click_encoding import encode_clicks_edt
+        def encode(coords):
+            return encode_clicks_edt(coords, ref_shape).astype(np.float32)
 
-    tumor_heatmap = markers(clicks['tumor'])
-    non_tumor_heatmap = markers(clicks['background'])
+    print(f"[save_click_heatmaps] encoding={mode} "
+          f"fg={len(clicks['tumor'])} bg={len(clicks['background'])}", flush=True)
+    tumor_heatmap = encode(clicks['tumor'])
+    non_tumor_heatmap = encode(clicks['background'])
 
     tumor_nifti = nib.Nifti1Image(tumor_heatmap, ref_affine, ref_header)
     non_tumor_nifti = nib.Nifti1Image(non_tumor_heatmap, ref_affine, ref_header)

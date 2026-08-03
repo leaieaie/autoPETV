@@ -141,11 +141,14 @@ class Autopet_baseline:
             f"-p nnUNetResEncUNetMPlans --save_probabilities --disable_tta",
             shell=True, check=True,
         )
-        # average the two softmax volumes and write the final segmentation
-        subprocess.run(
-            f"nnUNetv2_ensemble -i {d1} {d2} -o {self.result_path}",
-            shell=True, check=True,
-        )
+        # average the two softmax volumes and write the final segmentation.
+        # Call the library directly rather than the nnUNetv2_ensemble CLI so this
+        # does not depend on the console script being on PATH. nnUNetv2_predict
+        # copies plans.json/dataset.json into each output folder, so the defaults
+        # (read them from the first input folder) are sufficient.
+        from nnunetv2.ensembling.ensemble import ensemble_folders
+        ensemble_folders([d1, d2], self.result_path,
+                         save_merged_probabilities=False, num_processes=2)
         print("Ensemble prediction finished")
 
    

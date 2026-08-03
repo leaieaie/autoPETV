@@ -119,19 +119,34 @@ class Autopet_baseline:
 
     def predict(self):
         """
-        Your algorithm goes here
+        Ensemble of two on-the-fly EDT models, complementary on the challenge's two
+        equally-weighted metrics: the PlainConvUNet OTF model is strongest on Dice
+        (LB 0.7525) and the ResEncM OTF model is strongest on lesion-detection F1
+        (LB 0.7059). Both take EDT click channels + NoNorm plans, so the same input
+        feeds both; we average their softmax and argmax the mean.
         """
-        print("nnUNet segmentation starting!")
-        cproc = subprocess.run(
-            f"nnUNetv2_predict -i {self.nii_path} -o {self.result_path} -d 998 -c 3d_fullres -f 0 -p nnUNetResEncUNetMPlans --disable_tta",
-            shell=True,
-            check=True,
+        print("nnUNet ensemble segmentation starting!")
+        d1 = self.result_path + "_m1"   # PlainConvUNet OTF (high Dice)
+        d2 = self.result_path + "_m2"   # ResEncM OTF (high F1)
+        os.makedirs(d1, exist_ok=True)
+        os.makedirs(d2, exist_ok=True)
+
+        subprocess.run(
+            f"nnUNetv2_predict -i {self.nii_path} -o {d1} -d 998 -c 3d_fullres -f 0 "
+            f"-p nnUNetPlans --save_probabilities --disable_tta",
+            shell=True, check=True,
         )
-        print(cproc)
-        # since nnUNet_predict call is split into prediction and postprocess, a pre-mature exit code is received but
-        # segmentation file not yet written. This hack ensures that all spawned subprocesses are finished before being
-        # printed.
-        print("Prediction finished")
+        subprocess.run(
+            f"nnUNetv2_predict -i {self.nii_path} -o {d2} -d 998 -c 3d_fullres -f 0 "
+            f"-p nnUNetResEncUNetMPlans --save_probabilities --disable_tta",
+            shell=True, check=True,
+        )
+        # average the two softmax volumes and write the final segmentation
+        subprocess.run(
+            f"nnUNetv2_ensemble -i {d1} {d2} -o {self.result_path}",
+            shell=True, check=True,
+        )
+        print("Ensemble prediction finished")
 
    
     def process(self):

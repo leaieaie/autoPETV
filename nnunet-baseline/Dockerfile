@@ -36,6 +36,6 @@ ENV CLICK_ENCODING="edt"
 
 # Distinct build tag so the image digest differs from earlier uploads; Grand
 # Challenge rejects re-uploads of an identical image digest ("already uploaded").
-LABEL org.autopet.build="resencm-otf-v2"
+LABEL org.autopet.build="ensemble-v3"
 
 ENTRYPOINT ["python", "-m", "process"]

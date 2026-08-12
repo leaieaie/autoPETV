@@ -88,6 +88,57 @@ def channel_files(dataset, case):
     return [join(dataset, "imagesTr", f"{case}_{c}.nii.gz") for c in ("0000", "0001", "0002", "0003")]
 
 
+# Values read off the official training log shipped in the repository,
+# nnunet-baseline/.../fold_0/training_log_2026_3_26_12_52_40.txt. nnU-Net stores
+# the same per-epoch pseudo dice inside the checkpoint under logging/mean_fg_dice,
+# so a checkpoint that carries this trajectory is the official one and a
+# checkpoint that does not is something else wearing the same filename.
+OFFICIAL_LOG = dict(epochs=1000, first=0.1041, best=0.8349, last=0.7043)
+
+
+def verify_official_checkpoint(path):
+    """Confirm the file really is the official baseline, not a lookalike.
+
+    The container build overwrites
+    nnunet-baseline/.../nnUNetTrainer__nnUNetPlans__3d_fullres/fold_0/checkpoint_final.pth
+    with our own weights and patches trainer_name back to 'nnUNetTrainer', so
+    neither the path, the file size, nor trainer_name can be trusted here.
+    """
+    size = os.path.getsize(path)
+    if size < 10_000_000:
+        print(f"[FATAL] {path} が {size} バイトしかない = git-lfs のポインタのまま。"
+              " 'git lfs pull' で実体を取得してください")
+        return False
+    try:
+        import torch
+        ck = torch.load(path, map_location="cpu", weights_only=False)
+    except Exception as e:
+        print(f"[FATAL] checkpoint を読めない: {e}")
+        return False
+
+    hist = (ck.get("logging") or {}).get("mean_fg_dice")
+    print(f"[ckpt] {path}")
+    print(f"       size {size/1e6:.0f} MB / trainer_name={ck.get('trainer_name')} "
+          f"/ current_epoch={ck.get('current_epoch')}")
+    if not hist:
+        print("[FATAL] logging/mean_fg_dice が無く、公式かどうか判定できない")
+        return False
+
+    got = dict(epochs=len(hist), first=round(float(hist[0]), 4),
+               best=round(float(max(hist)), 4), last=round(float(hist[-1]), 4))
+    print(f"       pseudo dice: epochs={got['epochs']} first={got['first']} "
+          f"best={got['best']} last={got['last']}")
+    print(f"       公式ログの値: epochs={OFFICIAL_LOG['epochs']} first={OFFICIAL_LOG['first']} "
+          f"best={OFFICIAL_LOG['best']} last={OFFICIAL_LOG['last']}")
+    if got != OFFICIAL_LOG:
+        print("[FATAL] 学習履歴が公式ログと一致しない。"
+              " この checkpoint は公式baselineではありません（コンテナ用に置き換えられた自前の重みの可能性）。"
+              " 別ワークツリーに master を取り出して 'git lfs pull' した実体を --official に指定してください")
+        return False
+    print("[ok] 学習履歴が公式ログと完全一致 = 公式baselineの重みで間違いありません")
+    return True
+
+
 def check(args, cases):
     """Fail loudly before spending hours on the GPU."""
     ok = True
@@ -108,10 +159,8 @@ def check(args, cases):
         if not isfile(f):
             ok = False
             print(f"[FATAL] 公式モデルのファイルが無い: {f}")
-    if isfile(ckpt) and os.path.getsize(ckpt) < 10_000_000:
+    if isfile(ckpt) and not verify_official_checkpoint(ckpt):
         ok = False
-        print(f"[FATAL] {ckpt} が {os.path.getsize(ckpt)} バイトしかない。"
-              " git-lfs のポインタのままの可能性 → リポジトリで 'git lfs pull' を実行")
 
     ours_val = join(args.results, args.ours_dirname, f"fold_{args.fold}", "validation")
     n_ours = len([f for f in os.listdir(ours_val) if f.endswith(".nii.gz")]) if isdir(ours_val) else 0

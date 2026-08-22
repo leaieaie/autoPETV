@@ -11,6 +11,15 @@ def _env(name, default):
     return os.environ.get(name, default)
 
 
+# Which click encoding each normalisation of the click channels implies. The two
+# always travel together: the official baseline was trained with single-voxel
+# markers that preprocessing then ZScore-normalises, and the on-the-fly trainers
+# were trained with an exp(-d/tau) EDT field and NoNormalization. Feeding one
+# model the other's encoding is silent: the container runs, writes a
+# segmentation, and scores far below what the weights can do.
+NORM_TO_CLICKS = {"ZScoreNormalization": "point", "NoNormalization": "edt"}
+
+
 class Autopet_baseline:
 
     def __init__(self):
@@ -41,7 +50,15 @@ class Autopet_baseline:
         self.checkpoint = _env("NNUNET_CHK", "checkpoint_final.pth")
         self.step_size = _env("NNUNET_STEP", "0.5")
         self.tta = _env("NNUNET_TTA", "off").lower() in ("1", "on", "true", "yes")
-        os.environ.setdefault("CLICK_ENCODING", "point")
+
+        # Assign, never setdefault. A stale ENV CLICK_ENCODING="edt" left in the
+        # Dockerfile from the ensemble work silently won over a setdefault here and
+        # cost a submission: the official weights were fed EDT fields and scored
+        # 0.5124 instead of 0.7800. utils.save_click_heatmaps reads this variable,
+        # so it has to be the value this image intends, not whatever the image
+        # happened to inherit.
+        self.clicks = _env("NNUNET_CLICKS", "point")
+        os.environ["CLICK_ENCODING"] = self.clicks
 
     def convert_mha_to_nii(self, mha_input_path, nii_out_path):  # nnUNet specific
         img = SimpleITK.ReadImage(mha_input_path)
@@ -84,32 +101,42 @@ class Autopet_baseline:
             )
 
     def check_model(self):
-        """Say in the log which weights and settings this image actually runs.
+        """Refuse to run a configuration that cannot produce a good result.
 
-        The model folder in this repository has been overwritten by hand more than
-        once, and a checkpoint of the wrong model is indistinguishable from the
-        right one by path or by size, so the run log is the only place a mis-built
-        image becomes visible. mean_fg_dice is the training history stored inside
-        the checkpoint; for the official baseline it is 1000 epochs ending 0.7043
-        with a best of 0.8349.
+        Two things have gone wrong here before and neither showed up in the output:
+        a model folder overwritten by hand so the weights were not the ones we
+        thought, and a click encoding that did not match how the weights were
+        trained. Both produce a perfectly healthy-looking run. The plans file says
+        which encoding the weights expect, so the mismatch is checkable, and this
+        raises instead of quietly submitting.
         """
         folder = f"/opt/algorithm/nnUNet_results/Dataset998_AutoPETV/nnUNetTrainer__{self.plans}__3d_fullres"
         ckpt = os.path.join(folder, "fold_0", self.checkpoint)
         if not os.path.isfile(ckpt):
             raise RuntimeError(f"checkpoint がない: {ckpt}")
-        try:
-            with open(os.path.join(folder, "plans.json")) as f:
-                cfg = json.load(f)["configurations"]["3d_fullres"]
-            norm = ",".join(s.replace("Normalization", "") for s in cfg["normalization_schemes"])
-        except Exception as e:
-            raise RuntimeError(f"plans.json を読めない: {e}")
+        with open(os.path.join(folder, "plans.json")) as f:
+            cfg = json.load(f)["configurations"]["3d_fullres"]
+        schemes = cfg["normalization_schemes"]
+        norm = ",".join(s.replace("Normalization", "") for s in schemes)
+
         ck = torch.load(ckpt, map_location="cpu", weights_only=False)
         hist = (ck.get("logging") or {}).get("mean_fg_dice") or []
         tail = f" best={max(hist):.4f} last={hist[-1]:.4f}" if hist else ""
         print(f"[model] {self.plans} / {self.checkpoint} / {os.path.getsize(ckpt)/1e6:.0f} MB")
         print(f"[model] norm={norm} trainer={ck.get('trainer_name')} epochs={len(hist)}{tail}")
         print(f"[model] step_size={self.step_size} tta={'on' if self.tta else 'off'} "
-              f"clicks={os.environ.get('CLICK_ENCODING')}")
+              f"clicks={self.clicks}")
+
+        expected = NORM_TO_CLICKS.get(schemes[2])
+        if expected is None:
+            print(f"[model] 警告: ch2 の正規化 {schemes[2]} に対応する符号化が不明。検査を飛ばす")
+        elif expected != self.clicks:
+            raise RuntimeError(
+                f"クリック符号化の不一致: ch2 の正規化は {schemes[2]} なので "
+                f"'{expected}' で学習された重みだが、この image は '{self.clicks}' を書き込む。"
+                f" Dockerfile の ENV CLICK_ENCODING / NNUNET_CLICKS を確認すること"
+            )
+        print(f"[model] 符号化と正規化の整合 OK ({schemes[2]} <-> {self.clicks})")
 
     def load_inputs(self):
         """

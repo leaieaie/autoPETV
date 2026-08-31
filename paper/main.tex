@@ -1,0 +1,380 @@
+\documentclass[runningheads]{llncs}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{url}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\title{Public Ensemble Weights Outperform Six Retraining Attempts
+in Interactive Whole-Body Lesion Segmentation}
+\subtitle{A Negative-Results Report from a Single-GPU Participant in autoPET V}
+
+\titlerunning{Public Weights vs.\ Retraining in autoPET V}
+
+\author{FIRST AUTHOR\inst{1}\orcidID{0000-0000-0000-0000}}
+\authorrunning{F. Author}
+\institute{Hirosaki University, Hirosaki, Aomori, Japan\\
+\email{AUTHOR@EXAMPLE.AC.JP}}
+
+\maketitle
+
+\begin{abstract}
+We report our participation in the autoPET V challenge on interactive lesion
+segmentation in whole-body FDG- and PSMA-PET/CT. Working on a single consumer
+GPU (RTX 3060, 12\,GB), we retrained the challenge baseline six times under
+controlled changes: a repaired click-channel pipeline, an on-the-fly click
+trainer, a click-dropout trainer, a residual-encoder architecture, a two-model
+ensemble, and three inference-side variants. None of them reached the
+organizers' own baseline on the preliminary leaderboard. On the fold-0
+validation split, evaluated with one evaluator on identical data, the official
+baseline scores $0.7556$ against our best retrained model at $0.7733$; once the
+number of cases entering each mean is equalized, the official baseline is
+$+0.041$ ahead, and our apparent advantage is an artifact of $16$ lesion-free
+cases being excluded from our mean but not from theirs. We therefore submit a
+$10$-fold ensemble of the publicly released LesionLocator weights
+(Apache-2.0), which the challenge rules explicitly permit. Beyond the
+submission, we document three measurement failures that cost us most of the
+challenge period: the preliminary test set contains five cases of which four
+are scored, so leaderboard differences below roughly $0.05$ are noise; training
+pseudo-Dice, single-case Dice, and a local multi-case interaction simulator each
+failed to predict leaderboard order; and a genuine click-blindness bug turned
+out not to explain the gap it was blamed for.
+
+\keywords{autoPET challenge \and Interactive segmentation \and PET/CT \and
+Negative results \and Reproducibility}
+\end{abstract}
+
+\section{Introduction}
+
+The autoPET V challenge (MICCAI 2026) targets interactive lesion segmentation
+in whole-body PET/CT. Unlike the fully automatic tasks of earlier autoPET
+editions, an algorithm is called repeatedly: at the first iteration it receives
+the CT and PET volumes with an empty scribble set, and at each subsequent
+iteration it receives one additional scribble derived from its own previous
+error, namely a foreground scribble on an under-segmented region or a
+background scribble on an over-segmented one, whichever component is smaller.
+The evaluation loop runs five iterations per case and ranks submissions by the
+area under the Dice curve and the area under the detection-F1 (DMM) curve,
+weighted equally.
+
+Two properties of this protocol drive everything that follows. First, the
+zero-click iteration is included in the area, so a model that is strong only
+when clicked is heavily penalized. Second, each iteration adds exactly one
+scribble, so by the last iteration the model has seen at most four. The regime
+is sparse interaction, not dense correction.
+
+We participated with a single consumer GPU. This report is deliberately
+weighted toward what did not work: our six retrained models, the diagnostics
+that identified and repaired a real defect in our training data, and the
+measurement mistakes that let us pursue a wrong hypothesis for several weeks.
+Our final submission uses publicly released weights rather than our own
+training, and we state plainly why.
+
+\section{Methods}
+
+\subsection{Data}
+
+\paragraph{Training data.}
+We used only the data provided by the challenge: 1611 whole-body PET/CT studies
+(FDG and PSMA tracers) with lesion annotations and simulated scribbles. No
+external or private data were used for the models reported here. All training
+used nnU-Net fold 0 of the organizers' \texttt{splits\_final.json}
+(1288 training / 323 validation cases), which we verified reproduces the
+organizers' own split: applying nnU-Net's rule (sorting the case keys, then
+\texttt{KFold(5, shuffle=True, random\_state=12345)}) to the 1611 case
+identifiers yields exactly the 1288/323 partition reported in the official
+training log.
+
+\paragraph{Validation data.}
+Fold 0 of the same split (323 cases). We did not perform a full 5-fold
+cross-validation: a single 1000-epoch run takes approximately three days on our
+hardware, and the challenge period did not allow five of them. All validation
+numbers below are therefore fold-0 numbers, and we report the number of cases
+entering every mean, for reasons that Section~\ref{sec:results} makes clear.
+
+\subsection{Data pre-processing}
+
+The network input has four channels: CT, PET, a foreground-click map and a
+background-click map. Because our early models were effectively blind to the
+click channels, we reverse-engineered the organizers' click encoding rather
+than assuming it. Regenerating the click maps from the released scribble JSON
+files and comparing them against the organizers' pre-computed heatmaps gave a
+byte-exact match on all 1611 cases: 1038 cases with clicks (2076 files, zero
+mismatches, zero out-of-bounds coordinates, no values other than $1.0$) and 573
+cases whose scribble lists are empty, for which the official heatmaps are
+uniformly zero.
+
+The encoding is therefore a single voxel set to $1.0$ with no smoothing, with
+the JSON coordinate triple indexed directly into the NIfTI array in
+\texttt{[x,y,z]} order. Normalization follows the official configuration:
+CT normalization for the CT channel and Z-score normalization for the remaining
+three, including the sparse binary click channels. We note that Z-score
+normalization of a channel whose standard deviation is of order $10^{-4}$
+amplifies the click voxels by roughly three orders of magnitude relative to the
+image channels, whereas substituting no-normalization, as we did for our
+on-the-fly models, leaves the clicks at $1.0$ where they are dominated by the
+image channels. This is a plausible contributor to the weak click response we
+measured in those models, although we did not isolate it experimentally.
+
+\subsection{Algorithm/model}
+
+\paragraph{Final submission.}
+Our final submission is a 10-fold ensemble of the publicly released
+LesionLocator interactive weights~\cite{lesionlocator}, distributed under the
+Apache-2.0 license by the team that won the corresponding autoPET IV task. The
+architecture is a residual-encoder U-Net (ResEnc-L) with a $192^3$ patch and
+Euclidean-distance-transform click channels. The challenge rules state that
+publicly available data and networks may all be used, and we make no claim of
+novelty for the network itself.
+
+Two changes were required to run the released code inside the challenge
+container: extending the fold list to all ten folds, and disabling test-time
+mirroring. We additionally strip each checkpoint to the four keys the nnU-Net
+predictor actually reads (\texttt{network\_weights}, \texttt{trainer\_name},
+\texttt{inference\_allowed\_mirroring\_axes}, \texttt{init\_args}), which
+reduces each fold from $820$\,MB to $391$\,MB and the ten-fold model directory
+from $8.2$\,GB to $3.9$\,GB. The stripped checkpoints are reloaded and verified
+before the image is built.
+
+\paragraph{Models we trained ourselves.}
+For the negative results we report six configurations, all derived from the
+challenge baseline (plain convolutional U-Net, six stages, patch
+$112\times160\times128$):
+(i) a retrained baseline after repairing the click channels;
+(ii) an on-the-fly click trainer that synthesizes EDT click channels from the
+ground truth at every iteration;
+(iii) a click-dropout trainer ($p_{\mathrm{drop}}=0.5$) intended to break the
+shortcut described below;
+(iv) the on-the-fly trainer on a residual-encoder (ResEnc-M) backbone;
+(v) a softmax-average ensemble of (ii) and (iv);
+and (vi) three inference-side variants of the official weights
+(\texttt{checkpoint\_best}, halved sliding-window step, full test-time
+mirroring).
+
+\subsection{Data post-processing}
+
+None. The predicted label map is written at the original geometry with no
+connected-component filtering, no size threshold and no morphological
+operation.
+
+\subsection{Training and test parameters}
+
+Our own training used the nnU-Net defaults that the organizers also used, which
+we read from the baseline's \texttt{debug.json} rather than assuming: SGD with
+learning rate $0.01$, Nesterov momentum $0.99$, weight decay $3\times10^{-5}$,
+polynomial learning-rate decay, 1000 epochs of 250 iterations, batch size 2,
+patch $112\times160\times128$, foreground oversampling $0.33$, and the standard
+nnU-Net spatial and intensity augmentations. A single run took approximately
+three days on an RTX 3060.
+
+At test time the final submission uses a sliding-window step size of $0.5$ with
+mirroring disabled. One iteration of the 10-fold ensemble takes $171.9$\,s on
+our RTX 3060 ($161.0$\,s of prediction, about $12.9$\,s per fold, plus roughly
+$11$\,s of container startup), that is $859.5$\,s for the five iterations of one
+case against the 15-minute budget. On the challenge hardware, which uses a
+faster GPU, we expect this to be shorter, but we did not measure it.
+
+\subsection{Github repository}
+
+Link to Github repository: \url{https://github.com/leaieaie/autoPETV}
+
+\section{Results}
+\label{sec:results}
+
+\paragraph{Fold-0 validation.}
+Table~\ref{tab:val} compares the official baseline weights with our best
+retrained model on the same 323-case validation split, using one evaluator, one
+nnU-Net version and one prediction path. The comparison is not the one we first
+believed. nnU-Net's mean validation Dice excludes cases in which the union of
+prediction and ground truth is empty. Our click-dependent model predicts
+nothing on lesion-free cases and is excluded from all 116 of them; the official
+baseline produces a false positive on 16 of those cases and is therefore scored
+$0.0$ on them. Equalizing the population reverses the ranking: restricted to
+the 207 cases with lesions, the official baseline is ahead by $0.041$.
+
+\begin{table}[t]
+\caption{Fold-0 validation Dice, identical data and evaluator. Here $n$ is the
+number of cases entering the mean. The reported means are not comparable; the
+right-hand column is.}
+\label{tab:val}
+\centering
+\begin{tabular}{lccc}
+\toprule
+Model & $n$ & Reported mean & Lesion-bearing only ($n=207$) \\
+\midrule
+Official baseline & 223 & 0.7556 & \textbf{0.8140} \\
+Ours (repaired clicks) & 207 & 0.7733 & 0.7733 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+We also note that the mean validation Dice recorded in the organizers' own
+training log ($0.7225$) differs from our re-measurement of the same weights
+($0.7556$) by $+0.033$. Re-running our own model from raw data rather than from
+preprocessed data changed its score by $2.5\times10^{-7}$, so the discrepancy is
+not the prediction path; we attribute it to library or environment versions.
+Numbers taken from the official log should not be compared against numbers
+produced elsewhere.
+
+\paragraph{Preliminary leaderboard.}
+Table~\ref{tab:lb} lists every submission we made. The official baseline, shown
+for reference, was not beaten by any of them.
+
+\begin{table}[t]
+\caption{Preliminary test phase, AUC-Dice and AUC-F1. All values are means over
+four scored cases (see Section~\ref{sec:discussion}).}
+\label{tab:lb}
+\centering
+\begin{tabular}{lcc}
+\toprule
+Submission & AUC-Dice & AUC-F1 \\
+\midrule
+Official baseline (reference) & \textbf{0.7800} & \textbf{0.7554} \\
+\midrule
+On-the-fly click trainer & 0.7525 & 0.6622 \\
+Click dropout ($p=0.5$) & 0.7161 & 0.6724 \\
+ResEnc-M on-the-fly & 0.6805 & 0.7059 \\
+Two-model ensemble & 0.7189 & 0.7263 \\
+Official weights, \texttt{checkpoint\_best} & 0.7709 & 0.7545 \\
+Official weights, step size $0.25$ & 0.7781 & 0.7431 \\
+Official weights, full mirroring & 0.7826 & 0.7461 \\
+LesionLocator, 6 folds & 0.7334 & 0.6030 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Interaction behaviour.}
+A six-step diagnostic on individual cases separates two distinct failure modes.
+Our first repaired model responds strongly to clicks, with the predicted volume
+rising from 847 to 20431 voxels over the iterations and a final-iteration DMM of
+$0.842$, but it collapses at the zero-click iteration (Dice $0.071$). The cause
+is a shortcut that is genuinely present in the data: of the 1611 training
+cases, 573 have empty scribble lists, and in a 300-case audit the
+correspondence between ``no tumor clicks'' and ``empty label'' was exact, with
+189 cases with tumor clicks all non-empty and 111 cases without all empty. A
+model can satisfy the training objective by predicting nothing when no click is
+given. Click dropout repairs the zero-click iteration (Dice $0.071$ to
+$0.861$) but weakens the click response, and scored lower on the leaderboard.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{The preliminary phase cannot rank anything.}
+The preliminary test set contains five cases, one of which is lesion-free and
+scored as null, so every leaderboard figure in Table~\ref{tab:lb} is a mean
+over four cases. Per-case metrics are downloadable from the evaluation page,
+and we should have looked at them on our first submission rather than our
+fifteenth. Testing the per-case differences between our best public-weight run
+and the official baseline gives $t=-0.39$: the $0.047$ gap that we spent days
+interpreting is not distinguishable from zero. The same holds for the
+$\pm0.005$ differences among our three inference-side variants, which consumed
+three submission slots and three days. We report this because the ranking on a
+four-case leaderboard is visible to every participant and invites exactly the
+over-interpretation we fell into.
+
+\paragraph{Three predictors that do not work.}
+We tried, in order, to select models by training pseudo-Dice, by single-case
+Dice, and by a local multi-case interaction simulator. Each was contradicted by
+the leaderboard. Pseudo-Dice preferred an epoch-992 checkpoint that scored
+$0.009$ lower than the epoch-1000 checkpoint. Single-case Dice predicted the
+wrong direction for both inference variants we checked. The local simulator
+ranked our click-dropout model above our on-the-fly model; the leaderboard
+ranked them the other way. We do not have a working local proxy for this
+challenge's metric, and we think this is the main reason our search was
+unproductive: without one, every hypothesis costs a submission slot.
+
+\paragraph{A real bug that was not the cause.}
+Our preprocessed click channels were entirely zero for every training case, a
+defect introduced by a data-preparation script that reported no errors. This is
+a genuine bug, it is fully documented, and repairing it changed the mean
+validation Dice from $0.4371$ to $0.7733$. It is nevertheless not the
+explanation for our leaderboard deficit, for two reasons: our on-the-fly
+trainer synthesizes its click channels during training and never reads the
+broken ones, yet still lost to the baseline; and every model trained after the
+repair also lost. Having found one sufficient-looking cause, we stopped looking
+and wrote it up as settled. The actual reason our retrained models trail the
+official baseline, trained on the same data, the same split, the same
+architecture and the same schedule, remains unidentified. Candidates we have
+not tested include library-version differences and the normalization of the
+click channels discussed above.
+
+\paragraph{Why the area is dominated by the first iteration.}
+Because the loop starts with no scribbles and adds one per iteration, AUC-Dice
+is largely a measure of fully automatic segmentation quality. A model tuned for
+responsiveness to interaction, as ours were, optimizes the part of the curve
+that carries the least weight. In hindsight the click-dropout direction, namely
+forcing the model to segment well with no clicks at all, was the right one, and
+$p_{\mathrm{drop}}=0.5$ was simply too aggressive.
+
+\paragraph{On submitting public weights.}
+Our final submission is not our own model. The challenge rules permit publicly
+available networks without qualification, and we prefer to state the situation
+accurately: on this task, with this data, a single consumer GPU and roughly
+three months, we did not produce a model that beats either the organizers'
+baseline or the released weights of the previous edition's winner. The
+contribution we can defend is the measurement record above, not the network.
+
+\section{Conclusion}
+
+We submit a 10-fold ensemble of publicly released Apache-2.0 weights for
+autoPET V, and report six retraining attempts that failed to reach the official
+baseline. The most transferable lessons are methodological: verify the encoding
+of auxiliary input channels against the organizers' own artifacts before
+training on them; report the number of cases entering every mean, because
+nnU-Net's exclusion of empty cases can reverse a comparison; and check how many
+cases a preliminary leaderboard actually scores before treating its ordering as
+information.
+
+\begin{table}[t]
+\caption{Algorithm details.}
+\label{tab:details}
+\centering
+\begin{tabular}{p{2.2cm}p{3.0cm}p{3.2cm}p{2.4cm}}
+\toprule
+Team name & Algorithm name (as submitted on grand-challenge) &
+Data pre-processing & Data post-processing \\
+\midrule
+TEAM NAME &
+nnUNet 3d fullres interactive (CT/PET + scribbles) &
+nnU-Net default resampling; CT normalization for CT, Z-score for PET and both
+click channels; EDT click encoding &
+None \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{credits}
+\subsubsection{\ackname} We thank the autoPET organizers for releasing the
+baseline training artifacts, without which the analysis in
+Section~\ref{sec:results} would not have been possible.
+
+\subsubsection{\discintname}
+The author has no competing interests to declare that are relevant to the
+content of this article.
+\end{credits}
+
+\begin{thebibliography}{8}
+
+\bibitem{lesionlocator}
+Rokuss, M., et al.: LesionLocator: Zero-shot universal tumor segmentation and
+tracking in 3D whole-body imaging. arXiv:2508.21680 (2025)
+
+\bibitem{nnunet}
+Isensee, F., Jaeger, P.F., Kohl, S.A.A., Petersen, J., Maier-Hein, K.H.:
+nnU-Net: a self-configuring method for deep learning-based biomedical image
+segmentation. Nature Methods \textbf{18}(2), 203--211 (2021)
+
+\bibitem{autopetdata}
+Gatidis, S., et al.: A whole-body FDG-PET/CT dataset with manually annotated
+tumor lesions. Scientific Data \textbf{9}, 601 (2022)
+
+\bibitem{resenc}
+Isensee, F., et al.: nnU-Net revisited: a call for rigorous validation in 3D
+medical image segmentation. In: MICCAI 2024, LNCS. Springer (2024)
+
+\end{thebibliography}
+
+\end{document}

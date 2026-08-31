@@ -14,10 +14,10 @@ in Interactive Whole-Body Lesion Segmentation}
 
 \titlerunning{Public Weights vs.\ Retraining in autoPET V}
 
-\author{FIRST AUTHOR\inst{1}\orcidID{0000-0000-0000-0000}}
-\authorrunning{F. Author}
-\institute{Hirosaki University, Hirosaki, Aomori, Japan\\
-\email{AUTHOR@EXAMPLE.AC.JP}}
+\author{Naoki Haku}
+\authorrunning{N. Haku}
+\institute{School of Health Sciences, Faculty of Medicine,
+Hirosaki University, Hirosaki, Aomori, Japan}
 
 \maketitle
 
@@ -220,8 +220,12 @@ Numbers taken from the official log should not be compared against numbers
 produced elsewhere.
 
 \paragraph{Preliminary leaderboard.}
-Table~\ref{tab:lb} lists every submission we made. The official baseline, shown
-for reference, was not beaten by any of them.
+Table~\ref{tab:lb} lists the submissions we made with models we trained
+ourselves and with the official weights. The official baseline, shown for
+reference, was not beaten by any of them. Our final submission, a ten-fold
+ensemble of the public LesionLocator weights, scored higher on the preliminary
+set than the six-fold variant listed here; we do not read anything further into
+that difference, for the reason given in Section~\ref{sec:discussion}.
 
 \begin{table}[t]
 \caption{Preliminary test phase, AUC-Dice and AUC-F1. All values are means over
@@ -337,7 +341,7 @@ information.
 Team name & Algorithm name (as submitted on grand-challenge) &
 Data pre-processing & Data post-processing \\
 \midrule
-TEAM NAME &
+25plqki &
 nnUNet 3d fullres interactive (CT/PET + scribbles) &
 nnU-Net default resampling; CT normalization for CT, Z-score for PET and both
 click channels; EDT click encoding &

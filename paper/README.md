@@ -21,7 +21,7 @@ pdflatex main && pdflatex main
 
 Two passes are needed for the cross-references in Tables 1-3.
 
-## Before submitting to arXiv
+## Before submitting
 
 - [ ] Fill in `FIRST AUTHOR`, `AUTHOR@EXAMPLE.AC.JP`, the ORCID iD and the
       affiliation in the `\author` / `\institute` block

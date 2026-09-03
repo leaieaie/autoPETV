@@ -26,8 +26,8 @@ Two passes are needed for the cross-references in Tables 1-3.
 - [x] Author and affiliation filled in (Naoki Haku, School of Health Sciences,
       Faculty of Medicine, Hirosaki University)
 - [x] Team name filled in (`25plqki`) in Table 3 (`tab:details`)
-- [x] Built and submitted to Grand Challenge with the final submission
-      (2026-09-01, `main.pdf`, 7 pages)
+- [x] Built and submitted to Grand Challenge with the final submission, before
+      the 2026-09-01 23:59 (UTC+1) deadline (`main.pdf`, 7 pages)
 - [ ] Add the 10-fold preliminary AUC values to Table 2 — the text currently
       says only that it scored above the 6-fold variant
 - [ ] Add an e-mail address to the `\institute` block if one should be published

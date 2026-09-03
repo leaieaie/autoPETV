@@ -23,15 +23,16 @@ Two passes are needed for the cross-references in Tables 1-3.
 
 ## Before submitting
 
-- [ ] Fill in `FIRST AUTHOR`, `AUTHOR@EXAMPLE.AC.JP`, the ORCID iD and the
-      affiliation in the `\author` / `\institute` block
-- [ ] Fill in `TEAM NAME` in Table 3 (`tab:details`) so it matches the team
-      name shown on Grand Challenge
-- [ ] Replace the placeholder AUC values for the 10-fold submission once the
-      final test phase result is known, or drop that row if it is not published
-      before submission
+- [x] Author and affiliation filled in (Naoki Haku, School of Health Sciences,
+      Faculty of Medicine, Hirosaki University)
+- [x] Team name filled in (`25plqki`) in Table 3 (`tab:details`)
+- [x] Built and submitted to Grand Challenge with the final submission
+      (2026-09-01, `main.pdf`, 7 pages)
+- [ ] Add the 10-fold preliminary AUC values to Table 2 — the text currently
+      says only that it scored above the 6-fold variant
+- [ ] Add an e-mail address to the `\institute` block if one should be published
 - [ ] Confirm the LesionLocator citation details (authors, venue) against the
-      arXiv record for 2508.21680
+      arXiv record for 2508.21680 before any arXiv submission
 
 ## Scope note
 
